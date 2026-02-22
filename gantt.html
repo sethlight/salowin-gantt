@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SALOWIN ガントチャート</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/common.css">
+  <link rel="stylesheet" href="css/gantt.css">
+</head>
+<body class="highlight-root">
+  <div class="app-header">
+    <a href="/" class="header-back-link"><i class="fa-solid fa-chevron-left"></i> プロジェクト一覧</a>
+    <i class="fa-solid fa-bars" style="color: #999; margin-right: 15px;"></i>
+    <span id="chartTitle" contenteditable="true" spellcheck="false" style="font-weight: bold; outline: none; border-bottom: 2px solid transparent; padding: 2px 6px; border-radius: 3px; cursor: text; min-width: 60px; transition: border-color 0.2s;" onfocus="this.style.borderBottomColor='#3b82f6'; this.style.background='#f0f7ff'" onblur="this.style.borderBottomColor='transparent'; this.style.background='transparent'; onTitleBlur();" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">ガントチャート</span>
+    <i class="fa-solid fa-pencil" style="color: #ccc; font-size: 10px; margin-left: 2px; cursor: pointer;" onclick="document.getElementById('chartTitle').focus()" title="タイトルを編集"></i>
+    <span class="viewer-badge" id="viewerBadge" style="display: none;">閲覧専用</span>
+    <div class="undo-redo-group">
+      <button class="ur-btn" id="undoBtn" disabled onclick="undo()" title="元に戻す (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i><span class="ur-counter" id="undoCount"></span></button>
+      <button class="ur-btn" id="redoBtn" disabled onclick="redo()" title="やり直し (Ctrl+Shift+Z)"><i class="fa-solid fa-rotate-right"></i><span class="ur-counter" id="redoCount"></span></button>
+      <button class="ur-btn today-jump-btn" onclick="scrollToToday()" title="今日へジャンプ"><i class="fa-solid fa-calendar-day" style="color:#f43f5e;"></i>今日</button>
+    </div>
+    <button class="btn-save-cloud" id="saveBtn" onclick="saveToCloud()">
+      <i class="fa-solid fa-cloud-arrow-up"></i> 保存
+    </button>
+    <div class="save-status-msg" id="saveStatus"><i class="fa-solid fa-check"></i> 保存しました</div>
+    <span style="margin-left: 12px; font-size: 11px; color: #888;">(Ctrl+Enter:追加 / Shift+Del:削除 / Esc:ノート閉じる)</span>
+
+    <div class="presence-bar" id="presenceBar"></div>
+
+    <div class="header-user-info" id="headerUserInfo">
+      <div class="header-user-avatar" id="headerAvatar"></div>
+      <span id="headerUserName"></span>
+      <i class="fa-solid fa-right-from-bracket header-signout" id="headerSignout" title="ログアウト"></i>
+    </div>
+
+    <label style="margin-left: 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #555; user-select: none;">
+      <input type="checkbox" id="toggleDeadlineBtn" onchange="toggleDeadline()" style="cursor: pointer;">
+      期限列を非表示
+    </label>
+    <label style="margin-left: 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #555; user-select: none;">
+      <input type="checkbox" id="toggleHighlightBtn" checked onchange="toggleRootHighlight()" style="cursor: pointer;">
+      最上位タスク強調
+    </label>
+  </div>
+  <div class="main-container">
+    <div class="left-panel-container">
+      <div class="panel-header">
+        <div class="col-task">タスク</div>
+        <div class="col-status-header">ステータス</div>
+        <div class="col-progress-header">進捗</div>
+        <div class="col-manager">タスクオーナー</div>
+        <div class="col-ball">ボール</div>
+        <div class="col-deadline">期限</div>
+      </div>
+      <div class="content-scroll" id="leftScrollArea">
+        <div id="loadingMsg" style="padding: 20px; color:#666; font-size: 13px;"><i class="fa-solid fa-spinner fa-spin"></i> データを読み込んでいます...</div>
+        <div id="taskList" style="display: none;"></div>
+        <div class="add-task-btn" id="addTaskBtnWrapper" style="display: none;" onclick="pushUndo(); addTaskRowUI()">
+          <i class="fa-solid fa-circle-plus"></i> タスクを追加
+        </div>
+      </div>
+    </div>
+    <div class="right-panel-container">
+      <div class="right-panel-header" id="rightPanelHeader">
+        <div id="calendarHeader" class="calendar-header"></div>
+      </div>
+      <div class="gantt-scroll-area" id="ganttScrollArea">
+        <div id="ganttWrapper" class="gantt-wrapper">
+          <div id="ganttBackground" class="gantt-background"></div>
+          <div id="ganttList" style="position: relative; z-index: 1; display: none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="globalTooltip" class="global-tooltip"></div>
+
+  <!-- ノートモーダル -->
+  <div id="noteModal" class="note-modal-overlay">
+    <div class="note-modal-container">
+      <div class="note-header">
+        <div class="note-header-back" onclick="closeNoteModal()"><i class="fa-solid fa-chevron-left"></i> 前のページに戻る</div>
+        <div style="flex-grow: 1; text-align: right; color: #3b82f6; font-size: 12px;">
+          <i class="fa-solid fa-pen-to-square"></i> 見たまま編集（Escキーで閉じます）
+        </div>
+      </div>
+      <div class="note-content-split">
+        <!-- 左パネル：ノート -->
+        <div class="note-panel-left">
+          <div class="note-input-row">
+            <input type="text" class="note-input" id="noteLocation" placeholder="場所: [リストの一番上]" disabled style="background: #f9fafb; color: #666;">
+          </div>
+          <div class="note-input-row">
+            <input type="text" id="noteTitleInput" class="note-input" placeholder="タイトル" style="font-weight: bold; font-size: 18px;">
+          </div>
+          <div class="editor-wrapper">
+            <div id="toolbar-container">
+              <span class="ql-formats">
+                <select class="ql-header"><option value="1">見出し1</option><option value="2">見出し2</option><option value="3">見出し3</option><option selected>標準</option></select>
+              </span>
+              <span class="ql-formats"><button class="ql-bold"></button><button class="ql-italic"></button><button class="ql-strike"></button></span>
+              <span class="ql-formats"><button class="ql-list" value="ordered"></button><button class="ql-list" value="bullet"></button></span>
+              <span class="ql-formats"><button class="ql-link"></button><button class="ql-clean"></button></span>
+            </div>
+            <div id="editor-container"></div>
+          </div>
+          <div class="note-footer">
+            <button class="btn-update" onclick="saveNote(true)">閉じる</button>
+          </div>
+        </div>
+        <!-- 右パネル：コメント -->
+        <div class="note-panel-right">
+          <div class="comments-section">
+            <div class="comments-header" onclick="toggleComments()">
+              <i class="fa-regular fa-comments"></i> コメント (<span id="commentCount">0</span>)
+              <i class="fa-solid fa-chevron-down toggle-arrow" id="commentToggleArrow"></i>
+            </div>
+            <div id="commentsBody">
+              <div class="comments-list" id="commentsList"></div>
+              <div class="comment-input-area">
+                <input type="text" class="comment-text-input" id="commentInput" placeholder="コメントを追加... (Enterで送信)" onkeydown="if(event.key==='Enter'){addCommentUI();}">
+                <button class="comment-add-btn" onclick="addCommentUI()">追加</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module">
+    import { initAuth, requireAuth, signOut, getCurrentUser, getUserEmail, getUserDisplayName } from './js/auth.js';
+    import { sb } from './js/supabase-client.js';
+    import { loadTasks, insertTask, updateTaskImmediate, updateTaskDebounced, deleteTask, deleteTasks, syncAllTasks, reorderTasks } from './js/db/tasks.js';
+    import { loadNotes, getNote, upsertNote } from './js/db/notes.js';
+    import { loadComments, loadAllCommentCounts, addComment as dbAddComment, toggleCommentCleared, deleteComment as dbDeleteComment } from './js/db/comments.js';
+    import { updateProject } from './js/db/projects.js';
+    import { subscribeToProject, unsubscribeAll } from './js/realtime/subscriptions.js';
+    import { handleRemoteTaskChange, handleRemoteCommentChange, markPendingEdit, clearPendingEdit } from './js/realtime/conflict-resolver.js';
+    import { initPresenceUI, renderPresence } from './js/realtime/presence.js';
+
+    // --- グローバル変数 ---
+    const params = new URLSearchParams(window.location.search);
+    const PROJECT_ID = params.get('project');
+    if (!PROJECT_ID) { window.location.href = '/'; }
+
+    const calendarStartDate = new Date(2026, 1, 1, 0, 0, 0, 0);
+    const displayDays = 1826;
+    const cellWidth = 30;
+    const dayMs = 86400000;
+    const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+    const STATUS_COLORS = {
+      '未着手':    { bg: '#e4e4e7', fill: '#a1a1aa', text: '#52525b' },
+      '進行中':    { bg: '#dbeafe', fill: '#3b82f6', text: '#1e40af' },
+      '完了':      { bg: '#dcfce7', fill: '#22c55e', text: '#166534' },
+      'ブロック中': { bg: '#fee2e2', fill: '#ef4444', text: '#991b1b' },
+    };
+    const STATUS_SELECT_BG = { '未着手': '#a1a1aa', '進行中': '#3b82f6', '完了': '#22c55e', 'ブロック中': '#ef4444' };
+
+    let quill;
+    let localTasks = [];       // DB同期用のローカルキャッシュ
+    let notesCache = {};       // rowId -> note data
+    let commentCounts = {};    // rowId -> count
+    let currentNoteRowId = null;
+    let currentNoteComments = [];
+    let commentsCollapsed = false;
+    let isViewerMode = false;
+
+    // Undo/Redo
+    let undoStack = [];
+    let redoStack = [];
+    let isRestoring = false;
+
+    // --- グローバル関数をwindowに公開 ---
+    window.pushUndo = pushUndo;
+    window.undo = undo;
+    window.redo = redo;
+    window.scrollToToday = scrollToToday;
+    window.toggleDeadline = toggleDeadline;
+    window.toggleRootHighlight = toggleRootHighlight;
+    window.saveToCloud = saveToCloud;
+    window.addTaskRowUI = addTaskRowUI;
+    window.toggleCollapse = toggleCollapse;
+    window.handleKeydown = handleKeydown;
+    window.onStatusChange = onStatusChange;
+    window.onProgressChange = onProgressChange;
+    window.onProgressBlur = onProgressBlur;
+    window.openNoteModal = openNoteModal;
+    window.closeNoteModal = closeNoteModal;
+    window.saveNote = saveNote;
+    window.toggleComments = toggleComments;
+    window.addCommentUI = addCommentUI;
+    window.toggleCommentClearUI = toggleCommentClearUI;
+    window.deleteCommentUI = deleteCommentUI;
+    window.onTitleBlur = onTitleBlur;
+    window.onFieldBlur = onFieldBlur;
+
+    // ===================== 初期化 =====================
+    async function init() {
+      try {
+      const user = await requireAuth();
+      if (!user) return;
+
+      // ユーザー表示
+      const name = getUserDisplayName();
+      document.getElementById('headerUserName').textContent = name;
+      document.getElementById('headerAvatar').textContent = name.charAt(0).toUpperCase();
+      document.getElementById('headerSignout').addEventListener('click', () => signOut());
+
+      // Viewer判定
+      try {
+        const { data: membership } = await sb.from('project_members')
+          .select('role').eq('project_id', PROJECT_ID).eq('user_id', user.id).single();
+        if (membership?.role === 'viewer') {
+          isViewerMode = true;
+          document.getElementById('viewerBadge').style.display = 'inline-block';
+          document.getElementById('saveBtn').style.display = 'none';
+          document.getElementById('addTaskBtnWrapper').style.display = 'none';
+        }
+      } catch (e) { console.error(e); }
+
+      // プロジェクト名取得
+      try {
+        const { data: proj } = await sb.from('projects').select('name').eq('id', PROJECT_ID).single();
+        if (proj) {
+          document.getElementById('chartTitle').textContent = proj.name;
+          document.title = proj.name + ' - ガントチャート';
+        }
+      } catch (e) { console.error(e); }
+
+      // カレンダー・今日線
+      createCalendarHeader();
+      drawTodayLine();
+
+      // Quillエディタ
+      quill = new Quill('#editor-container', {
+        theme: 'snow',
+        placeholder: '本文を入力... （箇条書きアイコンを押した後、Tabキーで階層を下げられます）',
+        modules: {
+          toolbar: '#toolbar-container',
+          keyboard: {
+            bindings: {
+              tab: { key: 9, handler: function(range, context) {
+                if (context.format.list) { this.quill.format('indent', '+1', Quill.sources.USER); }
+                else { this.quill.insertText(range.index, '\t', Quill.sources.USER); this.quill.setSelection(range.index + 1, Quill.sources.SILENT); }
+                return false;
+              }},
+              shiftTab: { key: 9, shiftKey: true, handler: function(range, context) {
+                if (context.format.list) { this.quill.format('indent', '-1', Quill.sources.USER); }
+                return false;
+              }}
+            }
+          }
+        }
+      });
+
+      // データ読み込み
+      await loadDataFromSupabase();
+
+      // ドラッグ&ドロップ・ガントチャートドラッグ・スクロール同期
+      initGanttDrag();
+      initDragAndDrop();
+      initScrollSync();
+
+      // Realtime購読
+      initPresenceUI('presenceBar');
+      subscribeToProject(PROJECT_ID, {
+        onTaskChange: (payload) => {
+          handleRemoteTaskChange(payload, localTasks, (action, row) => {
+            renderAllTasksFromLocal();
+          });
+        },
+        onNoteChange: (payload) => {
+          const n = payload.new || payload.old;
+          if (n) notesCache[n.row_id] = n;
+        },
+        onCommentChange: (payload) => {
+          handleRemoteCommentChange(payload, async (eventType, data) => {
+            // コメント数再計算
+            commentCounts = await loadAllCommentCounts(PROJECT_ID);
+            document.querySelectorAll('#taskList .task-row').forEach(row => {
+              updateCommentBadge(row.id.replace('row-', ''));
+            });
+            // 開いているノートモーダルを更新
+            if (currentNoteRowId && data.row_id === currentNoteRowId) {
+              currentNoteComments = await loadComments(PROJECT_ID, currentNoteRowId);
+              renderComments();
+            }
+          });
+        },
+        onPresenceSync: (state) => renderPresence(state),
+      });
+
+      setTimeout(scrollToToday, 300);
+      } catch (err) {
+        console.error('[GANTT] init() error:', err);
+        document.getElementById('loadingMsg').innerHTML = '<span style="color:red;"><i class="fa-solid fa-triangle-exclamation"></i> 初期化エラー: ' + err.message + '</span>';
+      }
+    }
+
+    async function loadDataFromSupabase() {
+      try {
+        localTasks = await loadTasks(PROJECT_ID);
+        const notes = await loadNotes(PROJECT_ID);
+        notes.forEach(n => { notesCache[n.row_id] = n; });
+        commentCounts = await loadAllCommentCounts(PROJECT_ID);
+
+        document.getElementById('loadingMsg').style.display = 'none';
+        document.getElementById('taskList').style.display = 'block';
+        document.getElementById('ganttList').style.display = 'block';
+        if (!isViewerMode) document.getElementById('addTaskBtnWrapper').style.display = 'flex';
+
+        if (localTasks.length === 0) {
+          // 初回: サンプルタスク作成
+          const row1 = await insertTask(PROJECT_ID, { row_id: genRowId(), sort_order: 0, text: 'メインタスク1', level: 0, start_date: '2026-02-15', end_date: '2026-03-20' });
+          const row2 = await insertTask(PROJECT_ID, { row_id: genRowId(), sort_order: 1, text: 'サブタスク1-1', level: 1, start_date: '2026-02-26', end_date: '2026-03-05' });
+          localTasks = [row1, row2];
+        }
+
+        renderAllTasksFromLocal();
+        undoStack = [];
+        redoStack = [];
+        updateUndoRedoUI();
+      } catch (e) {
+        document.getElementById('loadingMsg').innerHTML = '<span style="color:red;"><i class="fa-solid fa-triangle-exclamation"></i> データの読み込みに失敗しました。</span>';
+        console.error(e);
+      }
+    }
+
+    // ===================== レンダリング =====================
+    function renderAllTasksFromLocal() {
+      const taskList = document.getElementById('taskList');
+      const ganttList = document.getElementById('ganttList');
+      taskList.innerHTML = '';
+      ganttList.innerHTML = '';
+
+      localTasks.forEach(t => {
+        createTaskRowDOM(t);
+      });
+      updateRowIcons();
+    }
+
+    function createTaskRowDOM(t) {
+      const taskList = document.getElementById('taskList');
+      const ganttList = document.getElementById('ganttList');
+      const rowId = t.row_id;
+      const readonlyAttr = isViewerMode ? 'readonly disabled' : '';
+
+      const taskRow = document.createElement('div');
+      taskRow.className = 'task-row';
+      taskRow.id = 'row-' + rowId;
+      taskRow.dataset.level = t.level;
+      taskRow.dataset.collapsed = t.collapsed ? 'true' : 'false';
+      taskRow.dataset.dbId = t.id;
+
+      taskRow.innerHTML = `
+        <div class="task-icons" title="ドラッグで入れ替え"><i class="fa-solid fa-grip-vertical"></i></div>
+        <div class="task-name-container">
+          <div class="indent-container"></div>
+          <div class="toggle-icon" onclick="toggleCollapse('${rowId}')"></div>
+          <input type="text" class="task-input" value="${escapeAttr(t.text)}" placeholder="タスクを入力..." onkeydown="handleKeydown(event, this)" onblur="onFieldBlur(this, '${rowId}', 'text')" ${isViewerMode ? 'readonly' : ''}>
+          <div class="note-icon-wrap">
+            <i class="fa-regular fa-file-lines note-icon" onclick="openNoteModal('${rowId}')" title="ノート・コメント"></i>
+            <span class="comment-badge" id="badge-${rowId}">0</span>
+          </div>
+        </div>
+        <div class="status-cell">
+          <select class="status-select" onchange="onStatusChange(this, '${rowId}')" ${isViewerMode ? 'disabled' : ''}>
+            <option value="未着手" ${t.status === '未着手' ? 'selected' : ''}>未着手</option>
+            <option value="進行中" ${t.status === '進行中' ? 'selected' : ''}>進行中</option>
+            <option value="完了" ${t.status === '完了' ? 'selected' : ''}>完了</option>
+            <option value="ブロック中" ${t.status === 'ブロック中' ? 'selected' : ''}>ブロック中</option>
+          </select>
+        </div>
+        <div class="progress-cell">
+          <input type="number" class="progress-input" min="0" max="100" step="5" value="${t.progress}" oninput="onProgressChange(this, '${rowId}')" onblur="onProgressBlur(this, '${rowId}')" ${readonlyAttr}>
+          <span class="progress-unit">%</span>
+        </div>
+        <input type="text" class="col-input" placeholder="" value="${escapeAttr(t.manager)}" onblur="onFieldBlur(this, '${rowId}', 'manager')" ${isViewerMode ? 'readonly' : ''}>
+        <input type="text" class="col-input" placeholder="" value="${escapeAttr(t.ball)}" onblur="onFieldBlur(this, '${rowId}', 'ball')" ${isViewerMode ? 'readonly' : ''}>
+        <div class="deadline-inputs">
+          <input type="date" class="date-input start-date" value="${t.start_date}" data-prev="${t.start_date}" onchange="pushUndo(); handleDateChange('${rowId}')" ${isViewerMode ? 'readonly' : ''}>
+          <span class="date-separator">-</span>
+          <input type="date" class="date-input end-date" value="${t.end_date}" data-prev="${t.end_date}" onchange="pushUndo(); handleDateChange('${rowId}')" ${isViewerMode ? 'readonly' : ''}>
+          <span class="deadline-alert" id="alert-${rowId}"></span>
+        </div>
+      `;
+
+      const ganttRow = document.createElement('div');
+      ganttRow.className = 'gantt-row';
+      ganttRow.id = rowId;
+      ganttRow.dataset.level = t.level;
+      ganttRow.style.zIndex = 1;
+
+      applyStatusColor(taskRow.querySelector('.status-select'));
+      taskList.appendChild(taskRow);
+      ganttList.appendChild(ganttRow);
+
+      // ホバー同期
+      taskRow.addEventListener('mouseenter', () => { taskRow.classList.add('is-hovered'); ganttRow.classList.add('is-hovered'); });
+      taskRow.addEventListener('mouseleave', () => { taskRow.classList.remove('is-hovered'); ganttRow.classList.remove('is-hovered'); });
+      ganttRow.addEventListener('mouseenter', () => { taskRow.classList.add('is-hovered'); ganttRow.classList.add('is-hovered'); });
+      ganttRow.addEventListener('mouseleave', () => { taskRow.classList.remove('is-hovered'); ganttRow.classList.remove('is-hovered'); });
+
+      // ツールチップ
+      const inputElem = taskRow.querySelector('.task-input');
+      const globalTooltip = document.getElementById('globalTooltip');
+      inputElem.addEventListener('mouseenter', function() {
+        if (this.scrollWidth > this.clientWidth && document.activeElement !== this) {
+          globalTooltip.textContent = this.value;
+          const rect = this.getBoundingClientRect();
+          globalTooltip.style.left = rect.left + 'px';
+          globalTooltip.style.top = (rect.top - 38) + 'px';
+          globalTooltip.style.display = 'block';
+        }
+      });
+      inputElem.addEventListener('mouseleave', () => globalTooltip.style.display = 'none');
+      inputElem.addEventListener('focus', () => globalTooltip.style.display = 'none');
+
+      // 折りたたみ非表示
+      if (t.collapsed) {
+        // 子タスクを非表示にする処理はupdateRowIconsで実施
+      }
+
+      updateGantt(rowId);
+      updateCommentBadge(rowId);
+      updateDeadlineAlert(rowId);
+
+      return taskRow;
+    }
+
+    // ===================== フィールド変更 → DB保存 =====================
+    function onFieldBlur(inputElem, rowId, field) {
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (!task) return;
+      const newVal = inputElem.value;
+      if (task[field] === newVal) return;
+      pushUndo();
+      task[field] = newVal;
+      clearPendingEdit(rowId, field);
+      updateTaskDebounced(task.id, { [field]: newVal });
+    }
+
+    function onTitleBlur() {
+      const title = document.getElementById('chartTitle').textContent;
+      document.title = title + ' - ガントチャート';
+      updateProject(PROJECT_ID, { name: title });
+    }
+
+    // ===================== Undo / Redo =====================
+    function captureState() {
+      const tasks = [];
+      document.querySelectorAll('#taskList .task-row').forEach(row => {
+        const rowId = row.id.replace('row-', '');
+        tasks.push({
+          rowId,
+          dbId: row.dataset.dbId,
+          level: parseInt(row.dataset.level),
+          collapsed: row.dataset.collapsed,
+          display: row.style.display || '',
+          text: row.querySelector('.task-input').value,
+          status: row.querySelector('.status-select').value,
+          progress: parseInt(row.querySelector('.progress-input').value) || 0,
+          manager: row.querySelectorAll('.col-input')[0].value,
+          ball: row.querySelectorAll('.col-input')[1].value,
+          startDate: row.querySelector('.start-date').value,
+          endDate: row.querySelector('.end-date').value,
+        });
+      });
+      return JSON.stringify({ title: document.getElementById('chartTitle').textContent, tasks });
+    }
+
+    function pushUndo() {
+      if (isRestoring) return;
+      const state = captureState();
+      if (undoStack.length > 0 && undoStack[undoStack.length - 1] === state) return;
+      undoStack.push(state);
+      redoStack = [];
+      if (undoStack.length > 50) undoStack.shift();
+      updateUndoRedoUI();
+    }
+
+    function undo() {
+      if (undoStack.length === 0) return;
+      redoStack.push(captureState());
+      restoreLocalState(undoStack.pop());
+      updateUndoRedoUI();
+    }
+
+    function redo() {
+      if (redoStack.length === 0) return;
+      undoStack.push(captureState());
+      restoreLocalState(redoStack.pop());
+      updateUndoRedoUI();
+    }
+
+    function updateUndoRedoUI() {
+      document.getElementById('undoBtn').disabled = undoStack.length === 0;
+      document.getElementById('redoBtn').disabled = redoStack.length === 0;
+      document.getElementById('undoCount').textContent = undoStack.length > 0 ? `(${undoStack.length})` : '';
+      document.getElementById('redoCount').textContent = redoStack.length > 0 ? `(${redoStack.length})` : '';
+    }
+
+    function restoreLocalState(stateJson) {
+      isRestoring = true;
+      const data = JSON.parse(stateJson);
+      if (data.title) {
+        document.getElementById('chartTitle').textContent = data.title;
+        document.title = data.title + ' - ガントチャート';
+      }
+
+      const taskList = document.getElementById('taskList');
+      const ganttList = document.getElementById('ganttList');
+      taskList.innerHTML = '';
+      ganttList.innerHTML = '';
+
+      // localTasksを再構築
+      localTasks = data.tasks.map((t, i) => {
+        const existing = localTasks.find(lt => lt.row_id === t.rowId);
+        return {
+          id: t.dbId || existing?.id || '',
+          project_id: PROJECT_ID,
+          row_id: t.rowId,
+          sort_order: i,
+          level: t.level,
+          collapsed: t.collapsed === 'true',
+          text: t.text,
+          status: t.status,
+          progress: t.progress,
+          manager: t.manager,
+          ball: t.ball,
+          start_date: t.startDate,
+          end_date: t.endDate,
+        };
+      });
+
+      localTasks.forEach(t => createTaskRowDOM(t));
+      updateRowIcons();
+      isRestoring = false;
+    }
+
+    // ===================== クラウド保存 =====================
+    async function saveToCloud() {
+      const btn = document.getElementById('saveBtn');
+      const status = document.getElementById('saveStatus');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 保存中...';
+      btn.disabled = true;
+
+      try {
+        // ローカル状態からタスク配列を構築
+        const tasksToSync = [];
+        document.querySelectorAll('#taskList .task-row').forEach((row, index) => {
+          const rowId = row.id.replace('row-', '');
+          tasksToSync.push({
+            row_id: rowId,
+            sort_order: index,
+            level: parseInt(row.dataset.level),
+            collapsed: row.dataset.collapsed === 'true',
+            text: row.querySelector('.task-input').value,
+            status: row.querySelector('.status-select').value,
+            progress: parseInt(row.querySelector('.progress-input').value) || 0,
+            manager: row.querySelectorAll('.col-input')[0].value,
+            ball: row.querySelectorAll('.col-input')[1].value,
+            start_date: row.querySelector('.start-date').value,
+            end_date: row.querySelector('.end-date').value,
+          });
+        });
+
+        await syncAllTasks(PROJECT_ID, tasksToSync);
+        // 保存後にローカルキャッシュ更新
+        localTasks = await loadTasks(PROJECT_ID);
+
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 保存';
+        btn.disabled = false;
+        status.style.display = 'flex';
+        setTimeout(() => status.style.display = 'none', 3000);
+      } catch (e) {
+        alert('保存に失敗しました: ' + e.message);
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> 保存';
+        btn.disabled = false;
+      }
+    }
+
+    // ===================== カレンダー =====================
+    function createCalendarHeader() {
+      const headerContainer = document.getElementById('calendarHeader');
+      const bgContainer = document.getElementById('ganttBackground');
+      const today = new Date();
+      let headerHtml = '', bgHtml = '';
+
+      for (let i = 0; i < displayDays; i++) {
+        const date = new Date(calendarStartDate.getTime() + i * dayMs);
+        const day = date.getDay();
+        const month = date.getMonth() + 1;
+        const isWeekend = (day === 0 || day === 6);
+        let monthText = month, monthStyle = '';
+        if (date.getDate() === 1 && month === 1) { monthText = `${date.getFullYear()}<br>${month}`; monthStyle = 'font-size: 8px;'; }
+        let todayClass = '';
+        if (date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate()) todayClass = 'today-header';
+        headerHtml += `<div class="calendar-cell ${isWeekend ? 'weekend' : ''} ${todayClass}"><div class="cell-month" style="${monthStyle}">${monthText}</div><div class="cell-date">${date.getDate()}</div><div class="cell-day">${dayNames[day]}</div></div>`;
+        bgHtml += `<div class="grid-cell ${isWeekend ? 'weekend' : ''}"></div>`;
+      }
+      headerContainer.innerHTML = headerHtml;
+      bgContainer.innerHTML = bgHtml;
+      const totalWidth = (displayDays * cellWidth) + 'px';
+      headerContainer.style.width = totalWidth;
+      document.getElementById('ganttWrapper').style.width = totalWidth;
+      bgContainer.style.width = totalWidth;
+      document.getElementById('ganttList').style.width = totalWidth;
+    }
+
+    function drawTodayLine() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const diffTime = today.getTime() - calendarStartDate.getTime();
+      if (diffTime >= 0) {
+        const line = document.createElement('div');
+        line.className = 'today-line';
+        line.style.left = (Math.floor(diffTime / dayMs) * cellWidth) + 'px';
+        line.style.height = '10000px';
+        document.getElementById('ganttBackground').appendChild(line);
+      }
+    }
+
+    function scrollToToday() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const diffTime = today.getTime() - calendarStartDate.getTime();
+      if (diffTime >= 0) {
+        const ganttScroll = document.getElementById('ganttScrollArea');
+        const target = Math.max(0, Math.floor(diffTime / dayMs) * cellWidth - ganttScroll.clientWidth / 2);
+        ganttScroll.scrollTo({ left: target, behavior: 'smooth' });
+      }
+    }
+
+    // ===================== ユーティリティ =====================
+    function genRowId() { return 'task-' + Date.now() + Math.random().toString(36).substring(7); }
+    function escapeAttr(str) { return (str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+    function escapeHtml(str) { const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
+    function parseLocalDate(dateStr) {
+      if (!dateStr) return null;
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return null;
+      return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 0, 0, 0, 0);
+    }
+    function formatDateStr(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+    function formatDateWithDow(ms) { const d = new Date(ms); return `${d.getMonth()+1}/${d.getDate()} ${dayNames[d.getDay()]}`; }
+
+    function applyStatusColor(sel) { sel.style.backgroundColor = STATUS_SELECT_BG[sel.value] || '#a1a1aa'; }
+
+    function toggleRootHighlight() {
+      document.body.classList.toggle('highlight-root', document.getElementById('toggleHighlightBtn').checked);
+    }
+    function toggleDeadline() {
+      document.body.classList.toggle('hide-deadline', document.getElementById('toggleDeadlineBtn').checked);
+    }
+
+    // ===================== タスク操作 =====================
+    async function addTaskRowUI(initialText = '', initialLevel = null, insertAfterRow = null) {
+      if (isViewerMode) return;
+      const level = initialLevel !== null ? initialLevel : 0;
+      const rowId = genRowId();
+
+      // 並び順を決定
+      let sortOrder = localTasks.length;
+      if (insertAfterRow) {
+        const afterRowId = insertAfterRow.id.replace('row-', '');
+        const afterIdx = localTasks.findIndex(t => t.row_id === afterRowId);
+        sortOrder = afterIdx + 1;
+      }
+
+      try {
+        const newTask = await insertTask(PROJECT_ID, {
+          row_id: rowId, sort_order: sortOrder, text: initialText, level,
+        });
+        localTasks.splice(sortOrder, 0, newTask);
+        // sort_order再付与
+        localTasks.forEach((t, i) => t.sort_order = i);
+
+        renderAllTasksFromLocal();
+        const newRow = document.getElementById('row-' + rowId);
+        if (newRow) {
+          setTimeout(() => {
+            newRow.querySelector('.task-input').focus();
+            const scrollArea = document.getElementById('leftScrollArea');
+            scrollArea.scrollTop = scrollArea.scrollHeight;
+          }, 10);
+        }
+      } catch (e) {
+        console.error('Failed to add task:', e);
+        alert('タスクの追加に失敗しました。');
+      }
+    }
+
+    function onStatusChange(selectElem, rowId) {
+      pushUndo();
+      applyStatusColor(selectElem);
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (task) {
+        task.status = selectElem.value;
+        updateTaskDebounced(task.id, { status: selectElem.value });
+      }
+      updateGantt(rowId);
+    }
+
+    function onProgressChange(inputElem, rowId) {
+      let v = parseInt(inputElem.value) || 0;
+      v = Math.max(0, Math.min(100, v));
+      inputElem.value = v;
+      updateGantt(rowId);
+    }
+
+    function onProgressBlur(inputElem, rowId) {
+      pushUndo();
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (task) {
+        task.progress = parseInt(inputElem.value) || 0;
+        updateTaskDebounced(task.id, { progress: task.progress });
+      }
+    }
+
+    // ===================== 階層・折りたたみ =====================
+    function updateRowIcons() {
+      const rows = document.querySelectorAll('#taskList .task-row');
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const level = parseInt(row.dataset.level);
+        const nextRow = rows[i+1];
+        const hasChild = nextRow && parseInt(nextRow.dataset.level) > level;
+        const isCollapsed = row.dataset.collapsed === 'true';
+        const toggleIconDiv = row.querySelector('.toggle-icon');
+        if (hasChild) {
+          toggleIconDiv.innerHTML = isCollapsed ? '<i class="fa-solid fa-chevron-right"></i>' : '<i class="fa-solid fa-chevron-down"></i>';
+          toggleIconDiv.style.cursor = 'pointer';
+        } else {
+          toggleIconDiv.innerHTML = '<span style="color:#cbd5e1; font-weight:bold;">-</span>';
+          toggleIconDiv.style.cursor = 'default';
+        }
+        const indentContainer = row.querySelector('.indent-container');
+        let indentHtml = '';
+        for(let j = 0; j < level; j++) indentHtml += '<div class="indent-line"></div>';
+        indentContainer.innerHTML = indentHtml;
+        row.querySelector('.task-input').style.fontWeight = level === 0 ? 'bold' : 'normal';
+      }
+    }
+
+    function toggleCollapse(rowId) {
+      const row = document.getElementById('row-' + rowId);
+      const myLevel = parseInt(row.dataset.level);
+      const nextRow = row.nextElementSibling;
+      if (!nextRow || parseInt(nextRow.dataset.level) <= myLevel) return;
+      const isCollapsed = row.dataset.collapsed === 'true';
+      row.dataset.collapsed = !isCollapsed;
+      let sibling = row.nextElementSibling;
+      while (sibling && sibling.classList.contains('task-row')) {
+        if (parseInt(sibling.dataset.level) <= myLevel) break;
+        const ganttRow = document.getElementById(sibling.id.replace('row-', ''));
+        if (!isCollapsed) { sibling.style.display = 'none'; if (ganttRow) ganttRow.style.display = 'none'; }
+        else { sibling.style.display = 'flex'; if (ganttRow) ganttRow.style.display = 'block'; sibling.dataset.collapsed = 'false'; }
+        sibling = sibling.nextElementSibling;
+      }
+      updateRowIcons();
+      // DB保存
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (task) {
+        task.collapsed = row.dataset.collapsed === 'true';
+        updateTaskDebounced(task.id, { collapsed: task.collapsed }, 500);
+      }
+    }
+
+    // ===================== キーボード操作 =====================
+    async function handleKeydown(e, inputElem) {
+      if (isViewerMode) return;
+      const row = inputElem.closest('.task-row');
+      let currentLevel = parseInt(row.dataset.level);
+      const rowId = row.id.replace('row-', '');
+
+      if ((e.key === 'Backspace' || e.key === 'Delete') && e.shiftKey) {
+        e.preventDefault();
+        pushUndo();
+        const tasksToDelete = [rowId];
+        let next = row.nextElementSibling;
+        while (next && parseInt(next.dataset.level) > currentLevel) {
+          tasksToDelete.push(next.id.replace('row-', ''));
+          next = next.nextElementSibling;
+        }
+        // DB削除
+        const dbIds = tasksToDelete.map(rid => localTasks.find(t => t.row_id === rid)?.id).filter(Boolean);
+        localTasks = localTasks.filter(t => !tasksToDelete.includes(t.row_id));
+        renderAllTasksFromLocal();
+        document.getElementById('globalTooltip').style.display = 'none';
+        if (dbIds.length) deleteTasks(dbIds).catch(console.error);
+        return;
+      }
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        pushUndo();
+        if (e.shiftKey) currentLevel = Math.max(0, currentLevel - 1);
+        else currentLevel += 1;
+        row.dataset.level = currentLevel;
+        const ganttRow = document.getElementById(rowId);
+        if (ganttRow) ganttRow.dataset.level = currentLevel;
+        const task = localTasks.find(t => t.row_id === rowId);
+        if (task) { task.level = currentLevel; updateTaskDebounced(task.id, { level: currentLevel }); }
+        updateRowIcons();
+      }
+      if (e.key === 'Enter') {
+        if (e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        if (e.shiftKey) {
+          pushUndo();
+          currentLevel = Math.max(0, currentLevel - 1);
+          row.dataset.level = currentLevel;
+          const ganttRow = document.getElementById(rowId);
+          if (ganttRow) ganttRow.dataset.level = currentLevel;
+          const task = localTasks.find(t => t.row_id === rowId);
+          if (task) { task.level = currentLevel; updateTaskDebounced(task.id, { level: currentLevel }); }
+          updateRowIcons();
+        } else {
+          pushUndo();
+          await addTaskRowUI('', currentLevel, row);
+        }
+      }
+    }
+
+    // ===================== 日付 =====================
+    function getParentRow(childRow) {
+      const currentLevel = parseInt(childRow.dataset.level);
+      if (currentLevel === 0) return null;
+      let prevRow = childRow.previousElementSibling;
+      while (prevRow) {
+        if (parseInt(prevRow.dataset.level) < currentLevel) return prevRow;
+        prevRow = prevRow.previousElementSibling;
+      }
+      return null;
+    }
+
+    function validateDates(rowId) {
+      const taskRow = document.getElementById('row-' + rowId);
+      const startInput = taskRow.querySelector('.start-date');
+      const endInput = taskRow.querySelector('.end-date');
+      if (!startInput.value || !endInput.value) return false;
+      const startMs = parseLocalDate(startInput.value).getTime();
+      const endMs = parseLocalDate(endInput.value).getTime();
+      if (endMs < startMs) endInput.value = startInput.value;
+      const parentRow = getParentRow(taskRow);
+      if (parentRow) {
+        const pStart = parentRow.querySelector('.start-date').value;
+        const pEnd = parentRow.querySelector('.end-date').value;
+        if (!pStart || !pEnd) { alert('【エラー】親タスクの期間が未設定です。'); revertToPrevDate(startInput, endInput); return false; }
+        if (startMs < parseLocalDate(pStart).getTime() || endMs > parseLocalDate(pEnd).getTime()) { alert('【エラー】サブタスクの期限は、親タスクの期間内に収めてください。'); revertToPrevDate(startInput, endInput); return false; }
+      }
+      startInput.dataset.prev = startInput.value;
+      endInput.dataset.prev = endInput.value;
+      return true;
+    }
+
+    function revertToPrevDate(s, e) {
+      if (s.dataset.prev && e.dataset.prev) { s.value = s.dataset.prev; e.value = e.dataset.prev; }
+      else { s.value = ''; e.value = ''; }
+    }
+
+    function handleDateChange(rowId) {
+      validateDates(rowId);
+      updateGantt(rowId);
+      // DB保存
+      const taskRow = document.getElementById('row-' + rowId);
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (task) {
+        task.start_date = taskRow.querySelector('.start-date').value;
+        task.end_date = taskRow.querySelector('.end-date').value;
+        updateTaskDebounced(task.id, { start_date: task.start_date, end_date: task.end_date });
+      }
+    }
+    window.handleDateChange = handleDateChange;
+
+    function setDatesAndValidate(rowId, startMs, endMs) {
+      const taskRow = document.getElementById('row-' + rowId);
+      if (!taskRow) return;
+      pushUndo();
+      taskRow.querySelector('.start-date').value = formatDateStr(new Date(startMs));
+      taskRow.querySelector('.end-date').value = formatDateStr(new Date(endMs));
+      validateDates(rowId);
+      updateGantt(rowId);
+      // DB保存
+      const task = localTasks.find(t => t.row_id === rowId);
+      if (task) {
+        task.start_date = taskRow.querySelector('.start-date').value;
+        task.end_date = taskRow.querySelector('.end-date').value;
+        updateTaskDebounced(task.id, { start_date: task.start_date, end_date: task.end_date });
+      }
+    }
+
+    // ===================== ガントチャート描画 =====================
+    function updateGantt(rowId) {
+      const taskRow = document.getElementById('row-' + rowId);
+      const ganttRow = document.getElementById(rowId);
+      if (!taskRow || !ganttRow) return;
+      const taskName = taskRow.querySelector('.task-input').value || 'タスク名未設定';
+      const startInput = taskRow.querySelector('.start-date').value;
+      const endInput = taskRow.querySelector('.end-date').value;
+      const status = taskRow.querySelector('.status-select').value;
+      const progress = parseInt(taskRow.querySelector('.progress-input').value) || 0;
+      const colors = STATUS_COLORS[status] || STATUS_COLORS['未着手'];
+      ganttRow.innerHTML = '';
+      if (startInput && endInput) {
+        const startD = parseLocalDate(startInput), endD = parseLocalDate(endInput);
+        const startMs = startD.getTime(), endMs = endD.getTime();
+        if (endMs >= startMs) {
+          const startOffset = startMs - calendarStartDate.getTime();
+          const leftPos = (Math.max(0, startOffset) / dayMs) * cellWidth;
+          const totalWidth = ((endMs - startMs + dayMs) / dayMs) * cellWidth;
+          const barWidth = startOffset < 0 ? totalWidth + (startOffset/dayMs*cellWidth) : totalWidth;
+          const durationDays = totalWidth / cellWidth;
+          if (barWidth > 0) {
+            const bar = document.createElement('div');
+            bar.className = 'gantt-bar';
+            bar.style.left = (startOffset < 0 ? 0 : leftPos) + 'px';
+            bar.style.width = barWidth + 'px';
+            bar.style.backgroundColor = colors.bg;
+            const pw = Math.min(100, Math.max(0, progress));
+            const showText = barWidth > 35;
+            bar.innerHTML = `
+              <div class="bar-progress-fill" style="width:${pw}%;background-color:${colors.fill};"></div>
+              ${showText ? `<div class="bar-progress-text">${pw > 0 ? pw+'%' : ''}</div>` : ''}
+              <div class="bar-tooltip">${escapeHtml(taskName)}${progress > 0 ? ' ('+progress+'%)' : ''}</div>
+              <div class="bar-label-left">${formatDateWithDow(startMs)}</div>
+              <div class="resize-handle left"></div>
+              <div class="resize-handle right"></div>
+              <div class="bar-label-right">${formatDateWithDow(endMs)} <span class="duration-badge">${durationDays}</span></div>
+            `;
+            ganttRow.appendChild(bar);
+          }
+        }
+      }
+      updateDeadlineAlert(rowId);
+    }
+
+    function updateBarLabels(bar, left, width) {
+      const startDays = Math.round(left / cellWidth);
+      const widthDays = Math.max(0, Math.round(width / cellWidth) - 1);
+      const startMs = calendarStartDate.getTime() + (startDays * dayMs);
+      const endMs = startMs + (widthDays * dayMs);
+      const durationDays = widthDays + 1;
+      const lbl = bar.querySelector('.bar-label-left');
+      const rbr = bar.querySelector('.bar-label-right');
+      if(lbl && rbr) { lbl.textContent = formatDateWithDow(startMs); rbr.innerHTML = `${formatDateWithDow(endMs)} <span class="duration-badge">${durationDays}</span>`; }
+    }
+
+    function updateDeadlineAlert(rowId) {
+      const taskRow = document.getElementById('row-' + rowId);
+      const alertBadge = document.getElementById('alert-' + rowId);
+      if (!taskRow || !alertBadge) return;
+      const endVal = taskRow.querySelector('.end-date').value;
+      const status = taskRow.querySelector('.status-select').value;
+      if (!endVal || status === '完了') { alertBadge.className = 'deadline-alert'; alertBadge.textContent = ''; return; }
+      const endDate = parseLocalDate(endVal);
+      const today = new Date(); today.setHours(0,0,0,0);
+      const diffDays = Math.floor((today.getTime() - endDate.getTime()) / dayMs);
+      if (diffDays >= 7) { alertBadge.className = 'deadline-alert danger'; alertBadge.textContent = diffDays + '日超過'; }
+      else if (diffDays >= 3) { alertBadge.className = 'deadline-alert warn'; alertBadge.textContent = diffDays + '日超過'; }
+      else { alertBadge.className = 'deadline-alert'; alertBadge.textContent = ''; }
+    }
+
+    function updateCommentBadge(rowId) {
+      const badge = document.getElementById('badge-' + rowId);
+      if (!badge) return;
+      const count = commentCounts[rowId] || 0;
+      badge.textContent = count;
+      badge.classList.toggle('has-comments', count > 0);
+    }
+
+    // ===================== ガントチャートドラッグ =====================
+    function initGanttDrag() {
+      if (isViewerMode) return;
+      const ganttList = document.getElementById('ganttList');
+      let action = null, targetRowId = null, startX = 0, initialLeft = 0, initialWidth = 0, currentBar = null;
+      let isClickDrawing = false, drawTargetRowId = null, drawStartX = 0, ghostBar = null;
+
+      ganttList.addEventListener('mousedown', (e) => {
+        if (isClickDrawing && ghostBar) {
+          e.stopPropagation(); e.preventDefault();
+          const fl = parseInt(ghostBar.style.left), w = parseInt(ghostBar.style.width);
+          ghostBar.remove(); isClickDrawing = false;
+          const sd = Math.round(fl / cellWidth), wd = Math.max(0, Math.round(w / cellWidth) - 1);
+          setDatesAndValidate(drawTargetRowId, calendarStartDate.getTime() + sd * dayMs, calendarStartDate.getTime() + (sd + wd) * dayMs);
+          drawTargetRowId = null; ghostBar = null;
+          return;
+        }
+        const row = e.target.closest('.gantt-row');
+        if (!row) return;
+        if (e.target.classList.contains('resize-handle')) {
+          e.stopPropagation();
+          action = e.target.classList.contains('left') ? 'resize-left' : 'resize-right';
+          currentBar = e.target.closest('.gantt-bar'); targetRowId = row.id; startX = e.clientX;
+          initialLeft = parseInt(currentBar.style.left || 0); initialWidth = parseInt(currentBar.style.width || 0);
+          currentBar.classList.add('is-dragging');
+          return;
+        }
+        if (e.target.closest('.gantt-bar')) {
+          e.stopPropagation(); action = 'move';
+          currentBar = e.target.closest('.gantt-bar'); targetRowId = row.id; startX = e.clientX;
+          initialLeft = parseInt(currentBar.style.left || 0); initialWidth = parseInt(currentBar.style.width || 0);
+          currentBar.classList.add('is-dragging');
+          return;
+        }
+        isClickDrawing = true; drawTargetRowId = row.id;
+        const rect = ganttList.getBoundingClientRect();
+        drawStartX = e.clientX - rect.left;
+        ghostBar = document.createElement('div');
+        ghostBar.className = 'gantt-bar is-dragging';
+        ghostBar.style.left = drawStartX + 'px'; ghostBar.style.width = '0px'; ghostBar.style.pointerEvents = 'none';
+        ghostBar.style.backgroundColor = '#dbeafe';
+        const tn = document.getElementById('row-' + drawTargetRowId)?.querySelector('.task-input')?.value || 'タスク名未設定';
+        ghostBar.innerHTML = `<div class="bar-tooltip">${escapeHtml(tn)}</div><div class="bar-label-left"></div><div class="resize-handle left"></div><div class="resize-handle right"></div><div class="bar-label-right"></div>`;
+        row.appendChild(ghostBar);
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (isClickDrawing && ghostBar) {
+          const rect = ganttList.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          const left = Math.min(drawStartX, cx), width = Math.abs(cx - drawStartX);
+          ghostBar.style.left = left + 'px'; ghostBar.style.width = width + 'px';
+          updateBarLabels(ghostBar, left, width);
+        } else if (action && currentBar) {
+          const dx = e.clientX - startX;
+          if (action === 'move') { const nl = Math.max(0, initialLeft + dx); currentBar.style.left = nl + 'px'; updateBarLabels(currentBar, nl, initialWidth); }
+          else if (action === 'resize-left') { const re = initialLeft + initialWidth; let nl = initialLeft + dx, nw = re - nl; if (nw < cellWidth) { nw = cellWidth; nl = re - cellWidth; } if (nl < 0) { nl = 0; nw = re; } currentBar.style.left = nl + 'px'; currentBar.style.width = nw + 'px'; updateBarLabels(currentBar, nl, nw); }
+          else if (action === 'resize-right') { const nw = Math.max(cellWidth, initialWidth + dx); currentBar.style.width = nw + 'px'; updateBarLabels(currentBar, initialLeft, nw); }
+        }
+      });
+
+      window.addEventListener('mouseup', (e) => {
+        if (isClickDrawing && ghostBar) {
+          const rect = ganttList.getBoundingClientRect();
+          const cx = e.clientX - rect.left;
+          if (Math.abs(cx - drawStartX) > 10) {
+            const fl = parseInt(ghostBar.style.left), w = parseInt(ghostBar.style.width);
+            ghostBar.remove(); isClickDrawing = false;
+            const sd = Math.round(fl / cellWidth), wd = Math.max(0, Math.round(w / cellWidth) - 1);
+            setDatesAndValidate(drawTargetRowId, calendarStartDate.getTime() + sd * dayMs, calendarStartDate.getTime() + (sd + wd) * dayMs);
+            drawTargetRowId = null; ghostBar = null;
+          }
+        } else if (action && currentBar) {
+          currentBar.classList.remove('is-dragging');
+          const fl = parseInt(currentBar.style.left), w = parseInt(currentBar.style.width);
+          const sd = Math.round(fl / cellWidth), wd = Math.max(0, Math.round(w / cellWidth) - 1);
+          setDatesAndValidate(currentBar.closest('.gantt-row').id, calendarStartDate.getTime() + sd * dayMs, calendarStartDate.getTime() + (sd + wd) * dayMs);
+          action = null; targetRowId = null; currentBar = null;
+        }
+      });
+    }
+
+    // ===================== ドラッグ&ドロップ (行並び替え) =====================
+    function initDragAndDrop() {
+      if (isViewerMode) return;
+      const taskList = document.getElementById('taskList');
+      const ganttList = document.getElementById('ganttList');
+      let draggingRow = null, draggingChildren = [];
+      const placeholder = document.createElement('div');
+      placeholder.className = 'drop-placeholder';
+
+      taskList.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.task-icons')) e.target.closest('.task-row').setAttribute('draggable', 'true');
+      });
+      taskList.addEventListener('dragstart', (e) => {
+        draggingRow = e.target.closest('.task-row');
+        if (!draggingRow) return;
+        pushUndo();
+        draggingChildren = [];
+        const level = parseInt(draggingRow.dataset.level);
+        let next = draggingRow.nextElementSibling;
+        while (next && parseInt(next.dataset.level) > level) { draggingChildren.push(next); next = next.nextElementSibling; }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggingRow.id);
+        setTimeout(() => {
+          draggingRow.classList.add('dragging');
+          const gRow = document.getElementById(draggingRow.id.replace('row-', ''));
+          if(gRow) gRow.classList.add('dragging');
+          draggingChildren.forEach(c => { c.classList.add('dragging'); const gc = document.getElementById(c.id.replace('row-', '')); if(gc) gc.classList.add('dragging'); });
+        }, 0);
+      });
+      taskList.addEventListener('dragover', (e) => {
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+        const targetRow = e.target.closest('.task-row');
+        if (targetRow && targetRow !== draggingRow && !draggingChildren.includes(targetRow)) {
+          const rect = targetRow.getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) taskList.insertBefore(placeholder, targetRow);
+          else {
+            let insertAfter = targetRow;
+            const tl = parseInt(targetRow.dataset.level);
+            let nxt = targetRow.nextElementSibling;
+            while (nxt && !nxt.classList.contains('drop-placeholder') && nxt !== draggingRow && !draggingChildren.includes(nxt) && parseInt(nxt.dataset.level) > tl) { insertAfter = nxt; nxt = nxt.nextElementSibling; }
+            taskList.insertBefore(placeholder, insertAfter.nextSibling);
+          }
+        }
+      });
+      taskList.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (draggingRow && placeholder.parentNode) {
+          taskList.insertBefore(draggingRow, placeholder);
+          let last = draggingRow;
+          draggingChildren.forEach(c => { taskList.insertBefore(c, last.nextSibling); last = c; });
+          // ガントチャート行も同じ順序に
+          Array.from(taskList.children).forEach(tr => {
+            if(tr.classList.contains('task-row')) {
+              const gr = document.getElementById(tr.id.replace('row-', ''));
+              if (gr) { ganttList.appendChild(gr); gr.style.display = tr.style.display; }
+            }
+          });
+          updateRowIcons();
+          // DB: 並び順を更新
+          const newOrder = Array.from(taskList.querySelectorAll('.task-row')).map(r => {
+            const rid = r.id.replace('row-', '');
+            const task = localTasks.find(t => t.row_id === rid);
+            return task?.id;
+          }).filter(Boolean);
+          reorderTasks(PROJECT_ID, newOrder).catch(console.error);
+        }
+      });
+      taskList.addEventListener('dragend', () => {
+        if (draggingRow) { draggingRow.classList.remove('dragging'); const gRow = document.getElementById(draggingRow.id.replace('row-', '')); if(gRow) gRow.classList.remove('dragging'); draggingRow.removeAttribute('draggable'); }
+        draggingChildren.forEach(c => { c.classList.remove('dragging'); const gc = document.getElementById(c.id.replace('row-', '')); if(gc) gc.classList.remove('dragging'); });
+        draggingChildren = [];
+        if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+        draggingRow = null;
+      });
+    }
+
+    // ===================== スクロール同期 =====================
+    function initScrollSync() {
+      const leftScroll = document.getElementById('leftScrollArea');
+      const ganttScroll = document.getElementById('ganttScrollArea');
+      const rightHeader = document.getElementById('rightPanelHeader');
+      ganttScroll.addEventListener('scroll', () => { leftScroll.scrollTop = ganttScroll.scrollTop; rightHeader.scrollLeft = ganttScroll.scrollLeft; });
+      leftScroll.addEventListener('scroll', () => { ganttScroll.scrollTop = leftScroll.scrollTop; });
+    }
+
+    // ===================== ノート＆コメント =====================
+    async function openNoteModal(rowId) {
+      currentNoteRowId = rowId;
+      const taskName = document.getElementById('row-' + rowId)?.querySelector('.task-input')?.value || '無題のタスク';
+
+      document.getElementById('noteLocation').value = `場所: [ ${taskName} ]`;
+
+      // ノートデータ取得
+      let note = notesCache[rowId];
+      if (!note) {
+        note = await getNote(PROJECT_ID, rowId);
+        if (note) notesCache[rowId] = note;
+      }
+      document.getElementById('noteTitleInput').value = note?.title || taskName;
+      quill.root.innerHTML = note?.content || '';
+
+      // コメント取得
+      currentNoteComments = await loadComments(PROJECT_ID, rowId);
+      renderComments();
+
+      document.getElementById('noteModal').style.display = 'flex';
+      // フォーカスを当てない（青い点が見える問題を防止）
+      quill.blur();
+    }
+
+    function closeNoteModal() {
+      document.getElementById('noteModal').style.display = 'none';
+      currentNoteRowId = null;
+    }
+
+    async function saveNote(closeModal) {
+      if (!currentNoteRowId || isViewerMode) { if (closeModal) closeNoteModal(); return; }
+      const title = document.getElementById('noteTitleInput').value;
+      const content = quill.root.innerHTML;
+      try {
+        const saved = await upsertNote(PROJECT_ID, currentNoteRowId, title, content);
+        notesCache[currentNoteRowId] = saved;
+      } catch (e) { console.error('Note save failed:', e); }
+      if (closeModal) closeNoteModal();
+    }
+
+    function toggleComments() {
+      commentsCollapsed = !commentsCollapsed;
+      document.getElementById('commentsBody').style.display = commentsCollapsed ? 'none' : 'block';
+      document.getElementById('commentToggleArrow').style.transform = commentsCollapsed ? 'rotate(-90deg)' : '';
+    }
+
+    function renderComments() {
+      const activeCount = currentNoteComments.filter(c => !c.cleared).length;
+      document.getElementById('commentCount').textContent = activeCount;
+      const list = document.getElementById('commentsList');
+
+      if (currentNoteComments.length === 0) {
+        list.innerHTML = '<div class="no-comments">コメントはまだありません</div>';
+        return;
+      }
+
+      list.innerHTML = currentNoteComments.map((c, i) => {
+        const d = new Date(c.created_at);
+        const timeStr = `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        const userStr = c.author_email || '不明';
+        const initial = userStr.charAt(0).toUpperCase();
+        const clearedClass = c.cleared ? 'cleared' : '';
+        const clearedBadge = c.cleared ? '<span class="cleared-badge">クリア済</span>' : '';
+        const actionBtn = c.cleared
+          ? `<div class="comment-action-btn undo" onclick="toggleCommentClearUI('${c.id}', false)" title="未クリアに戻す"><i class="fa-solid fa-rotate-left"></i></div>`
+          : `<div class="comment-action-btn check" onclick="toggleCommentClearUI('${c.id}', true)" title="クリア済にする"><i class="fa-solid fa-check"></i></div>`;
+        return `<div class="comment-item ${clearedClass}">
+          <div class="comment-avatar">${initial}</div>
+          <div class="comment-body">
+            <div class="comment-meta">${escapeHtml(userStr)} - ${timeStr} ${clearedBadge}</div>
+            <div class="comment-text">${escapeHtml(c.body)}</div>
+          </div>
+          ${!isViewerMode ? actionBtn : ''}
+          ${!isViewerMode ? `<div class="comment-action-btn trash" onclick="deleteCommentUI('${c.id}')" title="削除"><i class="fa-solid fa-trash-can"></i></div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    async function addCommentUI() {
+      if (!currentNoteRowId || isViewerMode) return;
+      const input = document.getElementById('commentInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      try {
+        const newComment = await dbAddComment(PROJECT_ID, currentNoteRowId, text);
+        currentNoteComments.push(newComment);
+        input.value = '';
+        renderComments();
+
+        // バッジ更新
+        commentCounts[currentNoteRowId] = (commentCounts[currentNoteRowId] || 0) + 1;
+        updateCommentBadge(currentNoteRowId);
+
+        const list = document.getElementById('commentsList');
+        list.scrollTop = list.scrollHeight;
+
+        // Chatwork通知
+        const taskName = document.getElementById('row-' + currentNoteRowId)?.querySelector('.task-input')?.value || '無題のタスク';
+        const projectName = document.getElementById('chartTitle')?.textContent || 'プロジェクト';
+        const ganttUrl = window.location.href;
+        const chatworkMsg = `[info][title]${projectName} - 新しいコメント[/title]タスク: ${taskName}\n送信者: ${getUserEmail()}\n\n${text}\n\n${ganttUrl}[/info]`;
+        try {
+          await sb.functions.invoke('chatwork-notify', {
+            body: { project_id: PROJECT_ID, message: chatworkMsg },
+          });
+        } catch (e) { console.warn('Chatwork notification failed:', e); }
+      } catch (e) {
+        console.error('Comment add failed:', e);
+        alert('コメントの追加に失敗しました。');
+      }
+    }
+
+    async function toggleCommentClearUI(commentId, cleared) {
+      if (isViewerMode) return;
+      try {
+        await toggleCommentCleared(commentId, cleared);
+        const c = currentNoteComments.find(x => x.id === commentId);
+        if (c) c.cleared = cleared;
+        renderComments();
+        commentCounts = await loadAllCommentCounts(PROJECT_ID);
+        if (currentNoteRowId) updateCommentBadge(currentNoteRowId);
+      } catch (e) { console.error(e); }
+    }
+
+    async function deleteCommentUI(commentId) {
+      if (isViewerMode) return;
+      try {
+        await dbDeleteComment(commentId);
+        currentNoteComments = currentNoteComments.filter(c => c.id !== commentId);
+        renderComments();
+        commentCounts = await loadAllCommentCounts(PROJECT_ID);
+        if (currentNoteRowId) updateCommentBadge(currentNoteRowId);
+      } catch (e) { console.error(e); }
+    }
+
+    // ===================== キーボードショートカット =====================
+    window.addEventListener('keydown', (e) => {
+      const noteModal = document.getElementById('noteModal');
+      if (noteModal.style.display === 'flex') {
+        if (e.key === 'Escape') saveNote(true);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') { e.preventDefault(); redo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        pushUndo();
+        addTaskRowUI('');
+      }
+    });
+
+    // ===================== 起動 =====================
+    init().catch(err => console.error('Init error:', err));
+  </script>
+</body>
+</html>

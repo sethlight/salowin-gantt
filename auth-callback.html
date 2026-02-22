@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>認証中...</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f8fafc; color: #333; }
+    .auth-msg { text-align: center; max-width: 400px; padding: 0 20px; }
+    .auth-msg i { font-size: 24px; color: #3b82f6; margin-bottom: 12px; }
+    .auth-msg p { font-size: 14px; color: #666; }
+    .reset-form { display: none; text-align: left; }
+    .reset-form h2 { text-align: center; font-size: 18px; margin-bottom: 16px; }
+    .reset-form input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; margin-bottom: 8px; box-sizing: border-box; }
+    .reset-form button { width: 100%; padding: 10px; background: #3b82f6; color: #fff; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+    .reset-form button:hover { background: #2563eb; }
+    .reset-form button:disabled { background: #93c5fd; cursor: not-allowed; }
+    .error-msg { color: #dc2626; font-size: 12px; display: none; margin-top: 4px; }
+    .success-msg { color: #22c55e; font-size: 14px; text-align: center; display: none; }
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+  <div class="auth-msg">
+    <div id="spinner"><i class="fa-solid fa-spinner fa-spin"></i></div>
+    <p id="statusText">認証処理中です...</p>
+
+    <!-- パスワードリセット用フォーム -->
+    <div class="reset-form" id="resetForm">
+      <h2><i class="fa-solid fa-key" style="color: #3b82f6;"></i> 新しいパスワードを設定</h2>
+      <input type="password" id="newPassword" placeholder="新しいパスワード（6文字以上）" autocomplete="new-password">
+      <input type="password" id="confirmPassword" placeholder="パスワード確認" autocomplete="new-password">
+      <div class="error-msg" id="resetError"></div>
+      <button id="updatePasswordBtn">パスワードを更新</button>
+    </div>
+
+    <div class="success-msg" id="successMsg">
+      <i class="fa-solid fa-check-circle" style="font-size: 36px; display: block; margin-bottom: 12px;"></i>
+      パスワードを更新しました！リダイレクトします...
+    </div>
+  </div>
+
+  <script type="module">
+    import { sb } from './js/supabase-client.js';
+
+    // URLハッシュからイベントタイプを確認
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const type = hashParams.get('type');
+
+    try {
+      const { data: { session }, error } = await sb.auth.getSession();
+
+      if (type === 'recovery' && session) {
+        // パスワードリセットのコールバック → 新パスワード入力フォームを表示
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('statusText').style.display = 'none';
+        document.getElementById('resetForm').style.display = 'block';
+
+        document.getElementById('updatePasswordBtn').addEventListener('click', async () => {
+          const pw = document.getElementById('newPassword').value;
+          const confirm = document.getElementById('confirmPassword').value;
+          const errDiv = document.getElementById('resetError');
+          errDiv.style.display = 'none';
+
+          if (!pw || pw.length < 6) {
+            errDiv.textContent = 'パスワードは6文字以上で入力してください。';
+            errDiv.style.display = 'block';
+            return;
+          }
+          if (pw !== confirm) {
+            errDiv.textContent = 'パスワードが一致しません。';
+            errDiv.style.display = 'block';
+            return;
+          }
+
+          try {
+            document.getElementById('updatePasswordBtn').disabled = true;
+            const { error } = await sb.auth.updateUser({ password: pw });
+            if (error) throw error;
+
+            document.getElementById('resetForm').style.display = 'none';
+            document.getElementById('successMsg').style.display = 'block';
+            setTimeout(() => window.location.href = '/', 2000);
+          } catch (e) {
+            errDiv.textContent = 'パスワード更新に失敗しました: ' + e.message;
+            errDiv.style.display = 'block';
+            document.getElementById('updatePasswordBtn').disabled = false;
+          }
+        });
+
+        // Enterキーで更新
+        document.getElementById('confirmPassword').addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') document.getElementById('updatePasswordBtn').click();
+        });
+
+      } else if (session) {
+        // 通常のログイン/サインアップコールバック
+        const redirect = sessionStorage.getItem('redirectAfterLogin') || '/';
+        sessionStorage.removeItem('redirectAfterLogin');
+        window.location.href = redirect;
+      } else {
+        document.getElementById('statusText').textContent = '認証に失敗しました。リダイレクトします...';
+        setTimeout(() => window.location.href = '/', 2000);
+      }
+    } catch (e) {
+      document.getElementById('statusText').textContent = 'エラーが発生しました: ' + e.message;
+      setTimeout(() => window.location.href = '/', 3000);
+    }
+  </script>
+</body>
+</html>

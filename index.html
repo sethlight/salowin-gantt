@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SALOWIN ガントチャート</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="css/common.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+  <div class="dash-header">
+    <i class="fa-solid fa-chart-gantt" style="color: #3b82f6; font-size: 20px;"></i>
+    <h1>SALOWIN ガントチャート</h1>
+    <div class="user-info" id="userInfo" style="display: none;">
+      <div class="user-avatar" id="userAvatar"></div>
+      <span id="userName"></span>
+      <i class="fa-solid fa-right-from-bracket signout-btn" title="ログアウト" id="signoutBtn"></i>
+    </div>
+  </div>
+
+  <!-- ログイン画面 -->
+  <div id="loginView" class="login-container" style="display: none;">
+    <i class="fa-solid fa-chart-gantt" style="font-size: 48px; color: #3b82f6;"></i>
+    <h2>SALOWIN ガントチャートへようこそ</h2>
+    <p>アカウントにログインして、プロジェクトを管理しましょう</p>
+
+    <!-- ログインフォーム -->
+    <div id="loginForm">
+      <input type="email" id="loginEmail" class="auth-input" placeholder="メールアドレス" autocomplete="email">
+      <input type="password" id="loginPassword" class="auth-input" placeholder="パスワード" autocomplete="current-password">
+      <div id="loginError" class="auth-error" style="display: none;"></div>
+      <button class="btn btn-primary auth-btn" id="loginBtn">
+        <i class="fa-solid fa-right-to-bracket"></i> ログイン
+      </button>
+      <p class="auth-switch">アカウントをお持ちでない方は <a href="#" id="showSignupLink">新規登録</a></p>
+      <p class="auth-switch"><a href="#" id="showResetLink">パスワードを忘れた方</a></p>
+    </div>
+
+    <!-- パスワードリセットフォーム -->
+    <div id="resetForm" style="display: none;">
+      <input type="email" id="resetEmail" class="auth-input" placeholder="登録メールアドレス" autocomplete="email">
+      <div id="resetError" class="auth-error" style="display: none;"></div>
+      <button class="btn btn-primary auth-btn" id="resetBtn">
+        <i class="fa-solid fa-paper-plane"></i> リセットメールを送信
+      </button>
+      <p class="auth-switch"><a href="#" id="backToLoginFromReset">ログインに戻る</a></p>
+    </div>
+
+    <!-- リセットメール送信後メッセージ -->
+    <div id="resetSentMessage" style="display: none;">
+      <i class="fa-solid fa-envelope-circle-check" style="font-size: 36px; color: #3b82f6; margin-bottom: 12px;"></i>
+      <p style="color: #3b82f6; font-weight: bold;">リセットメールを送信しました</p>
+      <p style="font-size: 13px; color: #64748b;">メール内のリンクをクリックして新しいパスワードを設定してください。</p>
+      <button class="btn btn-ghost" id="backToLoginFromResetSent" style="margin-top: 12px;">ログイン画面に戻る</button>
+    </div>
+
+    <!-- サインアップフォーム -->
+    <div id="signupForm" style="display: none;">
+      <input type="text" id="signupName" class="auth-input" placeholder="表示名" autocomplete="name">
+      <input type="email" id="signupEmail" class="auth-input" placeholder="メールアドレス" autocomplete="email">
+      <input type="password" id="signupPassword" class="auth-input" placeholder="パスワード（6文字以上）" autocomplete="new-password">
+      <div id="signupError" class="auth-error" style="display: none;"></div>
+      <button class="btn btn-primary auth-btn" id="signupBtn">
+        <i class="fa-solid fa-user-plus"></i> 新規登録
+      </button>
+      <p class="auth-switch">すでにアカウントをお持ちの方は <a href="#" id="showLoginLink">ログイン</a></p>
+    </div>
+
+    <!-- 確認メール送信後メッセージ -->
+    <div id="confirmMessage" style="display: none;">
+      <i class="fa-solid fa-envelope" style="font-size: 36px; color: #22c55e; margin-bottom: 12px;"></i>
+      <p style="color: #22c55e; font-weight: bold;">確認メールを送信しました</p>
+      <p style="font-size: 13px; color: #64748b;">メール内のリンクをクリックしてアカウントを有効化してください。<br>有効化後、こちらからログインできます。</p>
+      <button class="btn btn-ghost" id="backToLoginBtn" style="margin-top: 12px;">ログイン画面に戻る</button>
+    </div>
+  </div>
+
+  <!-- プロジェクト一覧 -->
+  <div id="dashView" class="dash-content" style="display: none;">
+    <div class="project-toolbar">
+      <h2><i class="fa-solid fa-folder-open" style="color: #3b82f6; margin-right: 8px;"></i>プロジェクト</h2>
+      <button class="btn btn-primary" id="newProjectBtn" style="margin-left: auto;">
+        <i class="fa-solid fa-plus"></i> 新規プロジェクト
+      </button>
+    </div>
+    <div id="projectGrid" class="project-grid"></div>
+    <div id="emptyState" class="empty-state" style="display: none;">
+      <i class="fa-regular fa-folder-open"></i>
+      <p>プロジェクトがまだありません。<br>「新規プロジェクト」ボタンで最初のプロジェクトを作成しましょう。</p>
+    </div>
+  </div>
+
+  <!-- 新規プロジェクトモーダル -->
+  <div class="modal-overlay" id="newProjectModal">
+    <div class="modal-box">
+      <h3><i class="fa-solid fa-folder-plus" style="color: #3b82f6; margin-right: 8px;"></i>新規プロジェクト</h3>
+      <label>プロジェクト名 *</label>
+      <input type="text" id="projectNameInput" placeholder="例: 2026年度 開発計画" maxlength="100">
+      <label>説明</label>
+      <textarea id="projectDescInput" rows="3" placeholder="プロジェクトの概要（任意）" maxlength="500"></textarea>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancelNewProject">キャンセル</button>
+        <button class="btn btn-primary" id="createProjectBtn"><i class="fa-solid fa-check"></i> 作成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- プロジェクト設定モーダル -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-box" style="width: 520px;">
+      <h3><i class="fa-solid fa-gear" style="color: #3b82f6; margin-right: 8px;"></i>プロジェクト設定</h3>
+      <p style="font-size: 12px; color: #64748b; margin-bottom: 16px;">コメント追加時にChatworkルームへ通知を送信します。</p>
+      <label>Chatwork ルームID</label>
+      <input type="text" id="settingsChatworkRoomId" placeholder="例: 123456789" style="margin-bottom: 12px;">
+      <label>Chatwork APIトークン</label>
+      <div style="position: relative;">
+        <input type="password" id="settingsChatworkToken" placeholder="APIトークンを入力" style="padding-right: 40px;">
+        <i class="fa-solid fa-eye" id="toggleTokenVisibility" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #94a3b8; font-size: 14px;" title="表示/非表示"></i>
+      </div>
+      <p style="font-size: 11px; color: #94a3b8; margin-top: 4px;"><i class="fa-solid fa-lock"></i> トークンはSupabase上で暗号化保存され、サーバーサイド（Edge Function）でのみ使用されます。クライアントには露出しません。</p>
+      <div id="settingsSaveStatus" style="color: #22c55e; font-size: 12px; display: none; margin-top: 8px;"><i class="fa-solid fa-check"></i> 保存しました</div>
+      <div id="settingsError" style="color: #dc2626; font-size: 12px; display: none; margin-top: 8px;"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="closeSettingsModal">閉じる</button>
+        <button class="btn btn-primary" id="saveSettingsBtn"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- メンバー管理モーダル -->
+  <div class="modal-overlay" id="memberModal">
+    <div class="modal-box" style="width: 560px;">
+      <h3><i class="fa-solid fa-users" style="color: #3b82f6; margin-right: 8px;"></i>メンバー管理</h3>
+      <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+        <input type="email" id="inviteEmailInput" placeholder="メールアドレスで招待" style="flex-grow: 1;">
+        <select id="inviteRoleSelect" style="width: 100px;">
+          <option value="editor">Editor</option>
+          <option value="viewer">Viewer</option>
+        </select>
+        <button class="btn btn-primary" id="inviteMemberBtn"><i class="fa-solid fa-user-plus"></i></button>
+      </div>
+      <div id="inviteError" style="color: #dc2626; font-size: 12px; display: none;"></div>
+      <div class="member-list" id="memberList"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="closeMemberModal">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module">
+    import { initAuth, signIn, signUp, signOut, resetPassword, getCurrentUser, getUserDisplayName } from './js/auth.js';
+    import { listProjects, createProject, deleteProject } from './js/db/projects.js';
+    import { listMembers, addMemberByEmail, updateMemberRole, removeMember } from './js/db/members.js';
+    import { getSettings, updateSettings } from './js/db/settings.js';
+
+    let projects = [];
+    let currentManageProjectId = null;
+    let currentSettingsProjectId = null;
+
+    // --- 初期化 ---
+    async function init() {
+      const user = await initAuth();
+      if (user) {
+        showDashboard(user);
+        await loadProjects();
+      } else {
+        showLogin();
+      }
+    }
+
+    function showLogin() {
+      document.getElementById('loginView').style.display = 'flex';
+      document.getElementById('dashView').style.display = 'none';
+      document.getElementById('userInfo').style.display = 'none';
+    }
+
+    function showDashboard(user) {
+      document.getElementById('loginView').style.display = 'none';
+      document.getElementById('dashView').style.display = 'block';
+      document.getElementById('userInfo').style.display = 'flex';
+      const name = getUserDisplayName();
+      document.getElementById('userName').textContent = name;
+      document.getElementById('userAvatar').textContent = name.charAt(0).toUpperCase();
+    }
+
+    async function loadProjects() {
+      try {
+        projects = await listProjects();
+        renderProjects();
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      }
+    }
+
+    function renderProjects() {
+      const grid = document.getElementById('projectGrid');
+      const empty = document.getElementById('emptyState');
+
+      if (projects.length === 0) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      grid.innerHTML = projects.map(p => {
+        const dateStr = new Date(p.updated_at).toLocaleDateString('ja-JP');
+        return `
+          <div class="project-card" data-id="${p.id}">
+            <h3>${escapeHtml(p.name)}</h3>
+            <div class="desc">${escapeHtml(p.description || '')}</div>
+            <div class="meta">
+              <span class="role-badge ${p.myRole}">${p.myRole}</span>
+              <span>${dateStr}</span>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 6px;">
+              ${p.myRole === 'owner' ? `
+                <button class="btn btn-ghost" style="padding: 4px 8px; font-size: 11px;" data-members="${p.id}">
+                  <i class="fa-solid fa-users"></i> メンバー
+                </button>
+                <button class="btn btn-ghost" style="padding: 4px 8px; font-size: 11px;" data-settings="${p.id}">
+                  <i class="fa-solid fa-gear"></i> 設定
+                </button>
+                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" data-delete="${p.id}">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // カードクリック → ガントチャートへ
+      grid.querySelectorAll('.project-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('button')) return;
+          const id = card.dataset.id;
+          window.location.href = `gantt?project=${id}`;
+        });
+      });
+
+      // メンバー管理
+      grid.querySelectorAll('[data-members]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openMemberModal(btn.dataset.members);
+        });
+      });
+
+      // 設定
+      grid.querySelectorAll('[data-settings]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openSettingsModal(btn.dataset.settings);
+        });
+      });
+
+      // 削除
+      grid.querySelectorAll('[data-delete]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!confirm('このプロジェクトを削除しますか？この操作は取り消せません。')) return;
+          try {
+            await deleteProject(btn.dataset.delete);
+            await loadProjects();
+          } catch (err) {
+            alert('削除に失敗しました: ' + err.message);
+          }
+        });
+      });
+    }
+
+    // --- メンバー管理モーダル ---
+    async function openMemberModal(projectId) {
+      currentManageProjectId = projectId;
+      document.getElementById('memberModal').classList.add('active');
+      document.getElementById('inviteError').style.display = 'none';
+      document.getElementById('inviteEmailInput').value = '';
+      await loadMembers();
+    }
+
+    async function loadMembers() {
+      if (!currentManageProjectId) return;
+      try {
+        const members = await listMembers(currentManageProjectId);
+        const list = document.getElementById('memberList');
+        const user = getCurrentUser();
+
+        list.innerHTML = members.map(m => {
+          const profile = m.profiles || {};
+          const email = profile.email || '不明';
+          const isMe = m.user_id === user.id;
+          const isSoleOwner = m.role === 'owner' && members.filter(x => x.role === 'owner').length === 1;
+
+          return `
+            <div class="member-item">
+              <div class="member-email">${escapeHtml(email)} ${isMe ? '(あなた)' : ''}</div>
+              <select class="member-role-select" data-member-id="${m.id}" ${isSoleOwner ? 'disabled' : ''}>
+                <option value="owner" ${m.role === 'owner' ? 'selected' : ''}>Owner</option>
+                <option value="editor" ${m.role === 'editor' ? 'selected' : ''}>Editor</option>
+                <option value="viewer" ${m.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+              </select>
+              ${!isSoleOwner && !isMe ? `<i class="fa-solid fa-xmark comment-action-btn trash" data-remove-member="${m.id}" title="削除"></i>` : ''}
+            </div>
+          `;
+        }).join('');
+
+        // ロール変更
+        list.querySelectorAll('.member-role-select').forEach(sel => {
+          sel.addEventListener('change', async () => {
+            try {
+              await updateMemberRole(sel.dataset.memberId, sel.value);
+            } catch (err) {
+              alert('ロール変更に失敗: ' + err.message);
+              await loadMembers();
+            }
+          });
+        });
+
+        // メンバー削除
+        list.querySelectorAll('[data-remove-member]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (!confirm('このメンバーを削除しますか？')) return;
+            try {
+              await removeMember(btn.dataset.removeMember);
+              await loadMembers();
+            } catch (err) {
+              alert('削除に失敗: ' + err.message);
+            }
+          });
+        });
+      } catch (e) {
+        console.error('Failed to load members:', e);
+      }
+    }
+
+    // --- イベントリスナー ---
+
+    // ログイン
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      const errDiv = document.getElementById('loginError');
+      errDiv.style.display = 'none';
+
+      if (!email || !password) {
+        errDiv.textContent = 'メールアドレスとパスワードを入力してください。';
+        errDiv.style.display = 'block';
+        return;
+      }
+      try {
+        document.getElementById('loginBtn').disabled = true;
+        await signIn(email, password);
+        // initAuthのonAuthStateChangeで自動的に更新されるが、手動でも遷移
+        const user = getCurrentUser();
+        if (user) {
+          showDashboard(user);
+          await loadProjects();
+        }
+      } catch (e) {
+        errDiv.textContent = e.message === 'Invalid login credentials'
+          ? 'メールアドレスまたはパスワードが正しくありません。'
+          : 'ログインに失敗しました: ' + e.message;
+        errDiv.style.display = 'block';
+      } finally {
+        document.getElementById('loginBtn').disabled = false;
+      }
+    });
+
+    // Enterキーでログイン
+    document.getElementById('loginPassword').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('loginBtn').click();
+    });
+
+    // サインアップ
+    document.getElementById('signupBtn').addEventListener('click', async () => {
+      const name = document.getElementById('signupName').value.trim();
+      const email = document.getElementById('signupEmail').value.trim();
+      const password = document.getElementById('signupPassword').value;
+      const errDiv = document.getElementById('signupError');
+      errDiv.style.display = 'none';
+
+      if (!email || !password) {
+        errDiv.textContent = 'メールアドレスとパスワードを入力してください。';
+        errDiv.style.display = 'block';
+        return;
+      }
+      if (password.length < 6) {
+        errDiv.textContent = 'パスワードは6文字以上で入力してください。';
+        errDiv.style.display = 'block';
+        return;
+      }
+      try {
+        document.getElementById('signupBtn').disabled = true;
+        await signUp(email, password, name);
+        // 確認メール送信後のメッセージを表示
+        document.getElementById('signupForm').style.display = 'none';
+        document.getElementById('confirmMessage').style.display = 'block';
+      } catch (e) {
+        errDiv.textContent = 'アカウント作成に失敗しました: ' + e.message;
+        errDiv.style.display = 'block';
+      } finally {
+        document.getElementById('signupBtn').disabled = false;
+      }
+    });
+
+    // Enterキーでサインアップ
+    document.getElementById('signupPassword').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('signupBtn').click();
+    });
+
+    // フォーム切替リンク
+    document.getElementById('showSignupLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('signupForm').style.display = 'block';
+      document.getElementById('confirmMessage').style.display = 'none';
+    });
+
+    document.getElementById('showLoginLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      document.getElementById('signupForm').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+      document.getElementById('confirmMessage').style.display = 'none';
+    });
+
+    document.getElementById('backToLoginBtn').addEventListener('click', () => {
+      document.getElementById('confirmMessage').style.display = 'none';
+      document.getElementById('loginForm').style.display = 'block';
+    });
+
+    // パスワードリセット
+    function hideAllForms() {
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('signupForm').style.display = 'none';
+      document.getElementById('confirmMessage').style.display = 'none';
+      document.getElementById('resetForm').style.display = 'none';
+      document.getElementById('resetSentMessage').style.display = 'none';
+    }
+
+    document.getElementById('showResetLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      hideAllForms();
+      document.getElementById('resetForm').style.display = 'block';
+      document.getElementById('resetError').style.display = 'none';
+    });
+
+    document.getElementById('backToLoginFromReset').addEventListener('click', (e) => {
+      e.preventDefault();
+      hideAllForms();
+      document.getElementById('loginForm').style.display = 'block';
+    });
+
+    document.getElementById('backToLoginFromResetSent').addEventListener('click', () => {
+      hideAllForms();
+      document.getElementById('loginForm').style.display = 'block';
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', async () => {
+      const email = document.getElementById('resetEmail').value.trim();
+      const errDiv = document.getElementById('resetError');
+      errDiv.style.display = 'none';
+
+      if (!email) {
+        errDiv.textContent = 'メールアドレスを入力してください。';
+        errDiv.style.display = 'block';
+        return;
+      }
+      try {
+        document.getElementById('resetBtn').disabled = true;
+        await resetPassword(email);
+        hideAllForms();
+        document.getElementById('resetSentMessage').style.display = 'block';
+      } catch (e) {
+        errDiv.textContent = 'リセットメール送信に失敗しました: ' + e.message;
+        errDiv.style.display = 'block';
+      } finally {
+        document.getElementById('resetBtn').disabled = false;
+      }
+    });
+
+    document.getElementById('resetEmail').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('resetBtn').click();
+    });
+
+    document.getElementById('signoutBtn').addEventListener('click', () => signOut());
+
+    document.getElementById('newProjectBtn').addEventListener('click', () => {
+      document.getElementById('newProjectModal').classList.add('active');
+      document.getElementById('projectNameInput').value = '';
+      document.getElementById('projectDescInput').value = '';
+      setTimeout(() => document.getElementById('projectNameInput').focus(), 100);
+    });
+
+    document.getElementById('cancelNewProject').addEventListener('click', () => {
+      document.getElementById('newProjectModal').classList.remove('active');
+    });
+
+    document.getElementById('createProjectBtn').addEventListener('click', async () => {
+      const name = document.getElementById('projectNameInput').value.trim();
+      if (!name) { alert('プロジェクト名を入力してください。'); return; }
+      const desc = document.getElementById('projectDescInput').value.trim();
+      try {
+        await createProject(name, desc);
+        document.getElementById('newProjectModal').classList.remove('active');
+        await loadProjects();
+      } catch (e) {
+        alert('プロジェクト作成に失敗しました: ' + e.message);
+      }
+    });
+
+    document.getElementById('inviteMemberBtn').addEventListener('click', async () => {
+      const email = document.getElementById('inviteEmailInput').value.trim();
+      const role = document.getElementById('inviteRoleSelect').value;
+      const errDiv = document.getElementById('inviteError');
+      if (!email) { errDiv.textContent = 'メールアドレスを入力してください。'; errDiv.style.display = 'block'; return; }
+      try {
+        errDiv.style.display = 'none';
+        await addMemberByEmail(currentManageProjectId, email, role);
+        document.getElementById('inviteEmailInput').value = '';
+        await loadMembers();
+      } catch (e) {
+        errDiv.textContent = e.message;
+        errDiv.style.display = 'block';
+      }
+    });
+
+    document.getElementById('closeMemberModal').addEventListener('click', () => {
+      document.getElementById('memberModal').classList.remove('active');
+      currentManageProjectId = null;
+    });
+
+    // --- プロジェクト設定モーダル ---
+    async function openSettingsModal(projectId) {
+      currentSettingsProjectId = projectId;
+      document.getElementById('settingsModal').classList.add('active');
+      document.getElementById('settingsSaveStatus').style.display = 'none';
+      document.getElementById('settingsError').style.display = 'none';
+      document.getElementById('settingsChatworkRoomId').value = '';
+      document.getElementById('settingsChatworkToken').value = '';
+
+      try {
+        const settings = await getSettings(projectId);
+        if (settings) {
+          document.getElementById('settingsChatworkRoomId').value = settings.chatwork_room_id || '';
+          document.getElementById('settingsChatworkToken').value = settings.chatwork_api_token || '';
+        }
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+
+    document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+      if (!currentSettingsProjectId) return;
+      const roomId = document.getElementById('settingsChatworkRoomId').value.trim();
+      const apiToken = document.getElementById('settingsChatworkToken').value.trim();
+      const statusDiv = document.getElementById('settingsSaveStatus');
+      const errDiv = document.getElementById('settingsError');
+      statusDiv.style.display = 'none';
+      errDiv.style.display = 'none';
+
+      try {
+        await updateSettings(currentSettingsProjectId, {
+          chatwork_room_id: roomId,
+          chatwork_api_token: apiToken,
+        });
+        statusDiv.style.display = 'block';
+        setTimeout(() => statusDiv.style.display = 'none', 3000);
+      } catch (e) {
+        errDiv.textContent = '保存に失敗しました: ' + e.message;
+        errDiv.style.display = 'block';
+      }
+    });
+
+    document.getElementById('closeSettingsModal').addEventListener('click', () => {
+      document.getElementById('settingsModal').classList.remove('active');
+      currentSettingsProjectId = null;
+    });
+
+    // トークン表示/非表示トグル
+    document.getElementById('toggleTokenVisibility').addEventListener('click', () => {
+      const input = document.getElementById('settingsChatworkToken');
+      const icon = document.getElementById('toggleTokenVisibility');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+      }
+    });
+
+    // モーダル背景クリックで閉じる
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.classList.remove('active');
+      });
+    });
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    init();
+  </script>
+</body>
+</html>

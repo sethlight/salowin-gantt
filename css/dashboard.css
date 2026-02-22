@@ -1,0 +1,111 @@
+body { background: #f8fafc; }
+
+.dash-header {
+  background: #fff; border-bottom: 1px solid #e2e8f0;
+  padding: 16px 32px; display: flex; align-items: center; gap: 16px;
+}
+.dash-header h1 { font-size: 20px; margin: 0; font-weight: 700; color: #1e293b; }
+.dash-header .user-info { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #64748b; }
+.dash-header .user-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: bold; font-size: 14px;
+}
+
+.btn { border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+.btn-primary { background: #3b82f6; color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-danger { background: #fee2e2; color: #dc2626; }
+.btn-danger:hover { background: #fecaca; }
+.btn-ghost { background: transparent; color: #64748b; border: 1px solid #e2e8f0; }
+.btn-ghost:hover { background: #f1f5f9; }
+.btn-google { background: #fff; color: #333; border: 1px solid #ddd; font-size: 14px; padding: 10px 24px; border-radius: 8px; }
+.btn-google:hover { background: #f1f5f9; border-color: #bbb; }
+.btn-google img { width: 18px; height: 18px; }
+
+.dash-content { max-width: 900px; margin: 0 auto; padding: 32px; }
+
+/* ログイン画面 */
+.login-container {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: calc(100vh - 80px); gap: 24px;
+}
+.login-container h2 { font-size: 24px; color: #1e293b; margin: 0; }
+.login-container p { color: #64748b; margin: 0; font-size: 14px; }
+
+/* 認証フォーム */
+.auth-input {
+  width: 320px; max-width: 90vw;
+  border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 10px 14px; font-size: 14px; outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  margin-top: 4px;
+  box-sizing: border-box;
+}
+.auth-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+.auth-input::placeholder { color: #94a3b8; }
+.auth-btn { width: 320px; max-width: 90vw; justify-content: center; padding: 10px 16px; font-size: 14px; margin-top: 8px; }
+.auth-error { color: #dc2626; font-size: 13px; margin-top: 4px; max-width: 320px; text-align: left; }
+.auth-switch { font-size: 13px; color: #64748b; margin-top: 8px; }
+.auth-switch a { color: #3b82f6; text-decoration: none; font-weight: 600; }
+.auth-switch a:hover { text-decoration: underline; }
+#loginForm, #signupForm, #confirmMessage { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+
+/* プロジェクト一覧 */
+.project-toolbar { display: flex; align-items: center; margin-bottom: 20px; gap: 12px; }
+.project-toolbar h2 { margin: 0; font-size: 18px; font-weight: 600; }
+
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.project-card {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+  padding: 20px; cursor: pointer; transition: 0.2s;
+}
+.project-card:hover { border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59,130,246,0.12); transform: translateY(-1px); }
+.project-card h3 { margin: 0 0 8px; font-size: 16px; color: #1e293b; }
+.project-card .desc { font-size: 13px; color: #94a3b8; margin-bottom: 12px; min-height: 20px; }
+.project-card .meta { font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; }
+.role-badge {
+  font-size: 10px; font-weight: bold; padding: 2px 8px; border-radius: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.role-badge.owner { background: #dbeafe; color: #1d4ed8; }
+.role-badge.editor { background: #dcfce7; color: #166534; }
+.role-badge.viewer { background: #f3f4f6; color: #6b7280; }
+
+.empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+.empty-state i { font-size: 48px; margin-bottom: 16px; color: #cbd5e1; display: block; }
+.empty-state p { font-size: 14px; }
+
+/* モーダル */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4); z-index: 9999;
+  display: none; align-items: center; justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal-box {
+  background: #fff; border-radius: 12px; padding: 28px; width: 480px;
+  max-width: 90vw; box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+}
+.modal-box h3 { margin: 0 0 20px; font-size: 18px; }
+.modal-box label { display: block; font-size: 12px; font-weight: 600; color: #64748b; margin-bottom: 4px; margin-top: 12px; }
+.modal-box input, .modal-box textarea, .modal-box select {
+  width: 100%; border: 1px solid #e2e8f0; border-radius: 6px;
+  padding: 8px 12px; font-size: 14px; outline: none;
+}
+.modal-box input:focus, .modal-box textarea:focus, .modal-box select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }
+.modal-footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+
+/* メンバー管理 */
+.member-list { margin-top: 16px; }
+.member-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9; font-size: 13px;
+}
+.member-item:last-child { border-bottom: none; }
+.member-email { flex-grow: 1; color: #334155; }
+.member-role-select { width: 100px; font-size: 12px; padding: 4px 8px; }
+
+.signout-btn { cursor: pointer; color: #94a3b8; transition: 0.2s; }
+.signout-btn:hover { color: #ef4444; }
