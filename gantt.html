@@ -150,7 +150,7 @@
     // カレンダー開始日 = 今日の30日前（今日が画面に見える位置に来る）
     const _today = new Date(); _today.setHours(0,0,0,0);
     const calendarStartDate = new Date(_today.getTime() - 30 * 86400000);
-    const displayDays = 1856; // 約5年分
+    const displayDays = 395; // 約13ヶ月分（前1ヶ月＋後12ヶ月）
     const cellWidth = 30;
     const dayMs = 86400000;
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -328,7 +328,7 @@
         onPresenceSync: (state) => renderPresence(state),
       });
 
-      setTimeout(scrollToToday, 300);
+      setTimeout(scrollToToday, 500);
       } catch (err) {
         console.error('[GANTT] init() error:', err);
         document.getElementById('loadingMsg').innerHTML = '<span style="color:red;"><i class="fa-solid fa-triangle-exclamation"></i> 初期化エラー: ' + err.message + '</span>';
@@ -486,24 +486,21 @@
 
     // ===================== Undo / Redo =====================
     function captureState() {
-      const tasks = [];
-      document.querySelectorAll('#taskList .task-row').forEach(row => {
-        const rowId = row.id.replace('row-', '');
-        tasks.push({
-          rowId,
-          dbId: row.dataset.dbId,
-          level: parseInt(row.dataset.level),
-          collapsed: row.dataset.collapsed,
-          display: row.style.display || '',
-          text: row.querySelector('.task-input').value,
-          status: row.querySelector('.status-select').value,
-          progress: parseInt(row.querySelector('.progress-input').value) || 0,
-          manager: row.querySelectorAll('.col-input')[0].value,
-          ball: row.querySelectorAll('.col-input')[1].value,
-          startDate: row.querySelector('.start-date').value,
-          endDate: row.querySelector('.end-date').value,
-        });
-      });
+      // localTasks配列から直接スナップショット（DOM走査を回避して高速化）
+      const tasks = localTasks.map(t => ({
+        rowId: t.row_id,
+        dbId: t.id,
+        level: t.level,
+        collapsed: t.collapsed ? 'true' : 'false',
+        display: '',
+        text: t.text,
+        status: t.status,
+        progress: t.progress,
+        manager: t.manager,
+        ball: t.ball,
+        startDate: t.start_date,
+        endDate: t.end_date,
+      }));
       return JSON.stringify({ title: document.getElementById('chartTitle').textContent, tasks });
     }
 
@@ -663,8 +660,10 @@
       const diffTime = today.getTime() - calendarStartDate.getTime();
       if (diffTime >= 0) {
         const ganttScroll = document.getElementById('ganttScrollArea');
-        const target = Math.max(0, Math.floor(diffTime / dayMs) * cellWidth - ganttScroll.clientWidth / 2);
-        ganttScroll.scrollTo({ left: target, behavior: 'smooth' });
+        // 今日の位置を画面の左端（少し余白あり）にスクロール
+        const todayPx = Math.floor(diffTime / dayMs) * cellWidth;
+        const target = Math.max(0, todayPx - 60);
+        ganttScroll.scrollTo({ left: target, behavior: 'auto' });
       }
     }
 
@@ -784,7 +783,7 @@
       return taskRow;
     }
 
-    async function addTaskRowUI(initialText = '', initialLevel = null, insertAfterRow = null) {
+    function addTaskRowUI(initialText = '', initialLevel = null, insertAfterRow = null) {
       if (isViewerMode) return;
       const level = initialLevel !== null ? initialLevel : 0;
       const rowId = genRowId();
@@ -810,28 +809,26 @@
 
       // DOMに新しい行だけ挿入（全再描画しない）
       insertTaskDOMAtPosition(tempTask, sortOrder);
-      updateRowIcons();
+      updateRowIconsNear(sortOrder);
 
       const newRow = document.getElementById('row-' + rowId);
       if (newRow) {
         newRow.querySelector('.task-input').focus();
       }
 
-      // バックグラウンドでDB保存
-      try {
-        const savedTask = await insertTask(PROJECT_ID, {
-          row_id: rowId, sort_order: sortOrder, text: initialText, level,
-        });
+      // バックグラウンドでDB保存（awaitしない → UIをブロックしない）
+      insertTask(PROJECT_ID, {
+        row_id: rowId, sort_order: sortOrder, text: initialText, level,
+      }).then(savedTask => {
         // DBから返ったIDで更新
         tempTask.id = savedTask.id;
         if (newRow) newRow.dataset.dbId = savedTask.id;
-      } catch (e) {
+      }).catch(e => {
         console.error('Failed to save task:', e);
-        // 失敗時はローカルから削除して再描画
         localTasks = localTasks.filter(t => t.row_id !== rowId);
         renderAllTasksFromLocal();
         alert('タスクの追加に失敗しました。');
-      }
+      });
     }
 
     function onStatusChange(selectElem, rowId) {
@@ -862,27 +859,45 @@
     }
 
     // ===================== 階層・折りたたみ =====================
-    function updateRowIcons() {
-      const rows = document.querySelectorAll('#taskList .task-row');
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const level = parseInt(row.dataset.level);
-        const nextRow = rows[i+1];
-        const hasChild = nextRow && parseInt(nextRow.dataset.level) > level;
-        const isCollapsed = row.dataset.collapsed === 'true';
-        const toggleIconDiv = row.querySelector('.toggle-icon');
-        if (hasChild) {
-          toggleIconDiv.innerHTML = isCollapsed ? '<i class="fa-solid fa-chevron-right"></i>' : '<i class="fa-solid fa-chevron-down"></i>';
-          toggleIconDiv.style.cursor = 'pointer';
-        } else {
-          toggleIconDiv.innerHTML = '<span style="color:#cbd5e1; font-weight:bold;">-</span>';
-          toggleIconDiv.style.cursor = 'default';
-        }
-        const indentContainer = row.querySelector('.indent-container');
+    // 1行分のアイコン・インデント更新（DOM書き換え最小化）
+    function updateSingleRowIcon(row, nextRow) {
+      const level = parseInt(row.dataset.level);
+      const hasChild = nextRow && parseInt(nextRow.dataset.level) > level;
+      const isCollapsed = row.dataset.collapsed === 'true';
+      const toggleIconDiv = row.querySelector('.toggle-icon');
+
+      // 変更が必要な場合だけinnerHTMLを書き換え
+      const wantedIcon = hasChild
+        ? (isCollapsed ? '<i class="fa-solid fa-chevron-right"></i>' : '<i class="fa-solid fa-chevron-down"></i>')
+        : '<span style="color:#cbd5e1; font-weight:bold;">-</span>';
+      if (toggleIconDiv.innerHTML !== wantedIcon) toggleIconDiv.innerHTML = wantedIcon;
+      toggleIconDiv.style.cursor = hasChild ? 'pointer' : 'default';
+
+      // インデント：子要素数で比較して変更があれば書き換え
+      const indentContainer = row.querySelector('.indent-container');
+      if (indentContainer.childElementCount !== level) {
         let indentHtml = '';
         for(let j = 0; j < level; j++) indentHtml += '<div class="indent-line"></div>';
         indentContainer.innerHTML = indentHtml;
-        row.querySelector('.task-input').style.fontWeight = level === 0 ? 'bold' : 'normal';
+      }
+
+      row.querySelector('.task-input').style.fontWeight = level === 0 ? 'bold' : 'normal';
+    }
+
+    function updateRowIcons() {
+      const rows = document.querySelectorAll('#taskList .task-row');
+      for (let i = 0; i < rows.length; i++) {
+        updateSingleRowIcon(rows[i], rows[i+1]);
+      }
+    }
+
+    // 部分更新：指定位置の前後だけアイコンを更新（Enter/Delete時に使用）
+    function updateRowIconsNear(position) {
+      const rows = document.querySelectorAll('#taskList .task-row');
+      const start = Math.max(0, position - 1);
+      const end = Math.min(rows.length - 1, position + 1);
+      for (let i = start; i <= end; i++) {
+        updateSingleRowIcon(rows[i], rows[i+1]);
       }
     }
 
@@ -911,7 +926,7 @@
     }
 
     // ===================== キーボード操作 =====================
-    async function handleKeydown(e, inputElem) {
+    function handleKeydown(e, inputElem) {
       if (isViewerMode) return;
       const row = inputElem.closest('.task-row');
       let currentLevel = parseInt(row.dataset.level);
@@ -919,6 +934,9 @@
 
       if ((e.key === 'Backspace' || e.key === 'Delete') && e.shiftKey) {
         e.preventDefault();
+        // 現在行のtextをlocalTasksに同期
+        const delTask = localTasks.find(t => t.row_id === rowId);
+        if (delTask) delTask.text = inputElem.value;
         pushUndo();
         const tasksToDelete = [rowId];
         let next = row.nextElementSibling;
@@ -926,6 +944,8 @@
           tasksToDelete.push(next.id.replace('row-', ''));
           next = next.nextElementSibling;
         }
+        // 削除位置を記録
+        const deletePosition = Array.from(document.querySelectorAll('#taskList .task-row')).indexOf(row);
         // DB削除
         const dbIds = tasksToDelete.map(rid => localTasks.find(t => t.row_id === rid)?.id).filter(Boolean);
         localTasks = localTasks.filter(t => !tasksToDelete.includes(t.row_id));
@@ -936,13 +956,16 @@
           if (tr) tr.remove();
           if (gr) gr.remove();
         });
-        updateRowIcons();
+        updateRowIconsNear(deletePosition);
         document.getElementById('globalTooltip').style.display = 'none';
         if (dbIds.length) deleteTasks(dbIds).catch(console.error);
         return;
       }
       if (e.key === 'Tab') {
         e.preventDefault();
+        // 現在行のtextをlocalTasksに同期
+        const tabTask = localTasks.find(t => t.row_id === rowId);
+        if (tabTask) tabTask.text = inputElem.value;
         pushUndo();
         if (e.shiftKey) currentLevel = Math.max(0, currentLevel - 1);
         else currentLevel += 1;
@@ -951,23 +974,27 @@
         if (ganttRow) ganttRow.dataset.level = currentLevel;
         const task = localTasks.find(t => t.row_id === rowId);
         if (task) { task.level = currentLevel; updateTaskDebounced(task.id, { level: currentLevel }); }
-        updateRowIcons();
+        const tabPosition = Array.from(document.querySelectorAll('#taskList .task-row')).indexOf(row);
+        updateRowIconsNear(tabPosition);
       }
       if (e.key === 'Enter') {
         if (e.ctrlKey || e.metaKey) return;
         e.preventDefault();
+        // 現在行のtextをlocalTasksに同期（captureStateがlocalTasksを参照するため）
+        const currentTask = localTasks.find(t => t.row_id === rowId);
+        if (currentTask) currentTask.text = inputElem.value;
         if (e.shiftKey) {
           pushUndo();
           currentLevel = Math.max(0, currentLevel - 1);
           row.dataset.level = currentLevel;
           const ganttRow = document.getElementById(rowId);
           if (ganttRow) ganttRow.dataset.level = currentLevel;
-          const task = localTasks.find(t => t.row_id === rowId);
-          if (task) { task.level = currentLevel; updateTaskDebounced(task.id, { level: currentLevel }); }
-          updateRowIcons();
+          if (currentTask) { currentTask.level = currentLevel; updateTaskDebounced(currentTask.id, { level: currentLevel }); }
+          const enterPosition = Array.from(document.querySelectorAll('#taskList .task-row')).indexOf(row);
+          updateRowIconsNear(enterPosition);
         } else {
           pushUndo();
-          await addTaskRowUI('', currentLevel, row);
+          addTaskRowUI('', currentLevel, row);
         }
       }
     }
@@ -1435,6 +1462,16 @@
       if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
+        // フォーカス中のtask-inputがあればlocalTasksに同期
+        const activeInput = document.activeElement;
+        if (activeInput && activeInput.classList.contains('task-input')) {
+          const activeRow = activeInput.closest('.task-row');
+          if (activeRow) {
+            const activeRowId = activeRow.id.replace('row-', '');
+            const activeTask = localTasks.find(t => t.row_id === activeRowId);
+            if (activeTask) activeTask.text = activeInput.value;
+          }
+        }
         pushUndo();
         addTaskRowUI('');
       }

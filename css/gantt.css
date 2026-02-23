@@ -23,7 +23,7 @@ body.hide-deadline .deadline-inputs { display: none !important; }
 .col-manager, .col-ball { width: 90px; display: flex; align-items: center; justify-content: center; border-left: 1px solid #f0f0f0; }
 .col-deadline { width: 260px; display: flex; align-items: center; justify-content: center; border-left: 1px solid #f0f0f0; }
 .calendar-header { display: flex; height: 100%; }
-.calendar-cell { width: 30px; flex-shrink: 0; text-align: center; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; justify-content: center; user-select: none; position: relative; box-sizing: border-box; }
+.calendar-cell { width: 30px; flex-shrink: 0; text-align: center; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; justify-content: center; user-select: none; position: relative; box-sizing: border-box; contain: layout style; }
 .cell-month { font-size: 10px; color: #999; margin-bottom: 2px; line-height: 1.1; }
 .cell-date { font-size: 13px; margin-bottom: 2px; }
 .cell-day { font-size: 10px; color: #999; }
@@ -33,7 +33,7 @@ body.hide-deadline .deadline-inputs { display: none !important; }
 .content-scroll { flex-grow: 1; overflow-y: auto; overflow-x: hidden; }
 .gantt-scroll-area { flex-grow: 1; overflow: auto; position: relative; }
 
-.task-row { display: flex; height: 40px; border-bottom: 1px solid #eee; align-items: center; font-size: 14px; position: relative; background-color: #fff; transition: background-color 0.1s;}
+.task-row { display: flex; height: 40px; border-bottom: 1px solid #eee; align-items: center; font-size: 14px; position: relative; background-color: #fff; transition: background-color 0.1s; contain: layout style;}
 .task-icons { width: 40px; display: flex; justify-content: center; align-items: center; color: #ccc; cursor: grab; flex-shrink: 0;}
 .task-icons:active { cursor: grabbing; color: #3b82f6;}
 .drop-placeholder { height: 2px; background-color: #3b82f6; margin: 0; padding: 0; width: 100%; box-shadow: 0 0 4px rgba(59,130,246,0.5);}
@@ -79,12 +79,12 @@ body.hide-deadline .deadline-inputs { display: none !important; }
 .date-separator { margin: 0 4px; color: #aaa; font-size: 12px;}
 
 /* ガントチャート領域 */
-.gantt-wrapper { position: relative; }
-.gantt-background { display: flex; position: absolute; top: 0; left: 0; height: 10000px; pointer-events: none; z-index: 0; }
+.gantt-wrapper { position: relative; contain: layout style; }
+.gantt-background { display: flex; position: absolute; top: 0; left: 0; height: 10000px; pointer-events: none; z-index: 0; contain: strict; }
 .grid-cell { width: 30px; flex-shrink: 0; border-right: 1px solid #f0f0f0; box-sizing: border-box; }
 .grid-cell.weekend { background-color: #f9f9f9; }
 
-.gantt-row { position: relative; height: 40px; border-bottom: 1px solid #eee; cursor: crosshair; transition: background-color 0.1s;}
+.gantt-row { position: relative; height: 40px; border-bottom: 1px solid #eee; cursor: crosshair; transition: background-color 0.1s; contain: layout style;}
 .today-line { position: absolute; top: 0; width: 1px; background-color: #f43f5e; z-index: 5; pointer-events: none; }
 .gantt-bar { position: absolute; top: 12px; height: 16px; border-radius: 4px; cursor: move; user-select: none; transition: background-color 0.15s; overflow: visible; }
 .gantt-bar:hover { filter: brightness(0.92); z-index: 10;}
