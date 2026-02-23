@@ -147,8 +147,10 @@
     const PROJECT_ID = params.get('project');
     if (!PROJECT_ID) { window.location.href = '/'; }
 
-    const calendarStartDate = new Date(2026, 1, 1, 0, 0, 0, 0);
-    const displayDays = 1826;
+    // カレンダー開始日 = 今日の30日前（今日が画面に見える位置に来る）
+    const _today = new Date(); _today.setHours(0,0,0,0);
+    const calendarStartDate = new Date(_today.getTime() - 30 * 86400000);
+    const displayDays = 1856; // 約5年分
     const cellWidth = 30;
     const dayMs = 86400000;
     const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
@@ -270,7 +272,39 @@
       subscribeToProject(PROJECT_ID, {
         onTaskChange: (payload) => {
           handleRemoteTaskChange(payload, localTasks, (action, row) => {
-            renderAllTasksFromLocal();
+            if (action === 'insert') {
+              // 新規タスクだけDOMに追加
+              const pos = localTasks.findIndex(t => t.id === row.id);
+              if (pos !== -1 && !document.getElementById('row-' + row.row_id)) {
+                insertTaskDOMAtPosition(row, pos);
+                updateRowIcons();
+              }
+            } else if (action === 'update') {
+              // 変更のあった行だけDOM更新
+              const taskRow = document.getElementById('row-' + row.row_id);
+              if (taskRow) {
+                const inp = taskRow.querySelector('.task-input');
+                if (inp !== document.activeElement) inp.value = row.text || '';
+                const sel = taskRow.querySelector('.status-select');
+                sel.value = row.status; applyStatusColor(sel);
+                taskRow.querySelector('.progress-input').value = row.progress;
+                taskRow.querySelectorAll('.col-input')[0].value = row.manager || '';
+                taskRow.querySelectorAll('.col-input')[1].value = row.ball || '';
+                taskRow.querySelector('.start-date').value = row.start_date || '';
+                taskRow.querySelector('.end-date').value = row.end_date || '';
+                taskRow.dataset.level = row.level;
+                updateGantt(row.row_id);
+                updateRowIcons();
+                updateDeadlineAlert(row.row_id);
+              }
+            } else if (action === 'delete') {
+              // 削除された行だけDOMから除去
+              const taskRow = document.getElementById('row-' + row.row_id);
+              const ganttRow = document.getElementById(row.row_id);
+              if (taskRow) taskRow.remove();
+              if (ganttRow) ganttRow.remove();
+              updateRowIcons();
+            }
           });
         },
         onNoteChange: (payload) => {
@@ -657,6 +691,99 @@
     }
 
     // ===================== タスク操作 =====================
+    // 特定位置にタスクDOMを挿入（全再描画しない）
+    function insertTaskDOMAtPosition(task, position) {
+      const taskList = document.getElementById('taskList');
+      const ganttList = document.getElementById('ganttList');
+      const rowId = task.row_id;
+      const readonlyAttr = isViewerMode ? 'readonly disabled' : '';
+
+      const taskRow = document.createElement('div');
+      taskRow.className = 'task-row';
+      taskRow.id = 'row-' + rowId;
+      taskRow.dataset.level = task.level;
+      taskRow.dataset.collapsed = task.collapsed ? 'true' : 'false';
+      taskRow.dataset.dbId = task.id || '';
+
+      taskRow.innerHTML = `
+        <div class="task-icons" title="ドラッグで入れ替え"><i class="fa-solid fa-grip-vertical"></i></div>
+        <div class="task-name-container">
+          <div class="indent-container"></div>
+          <div class="toggle-icon" onclick="toggleCollapse('${rowId}')"></div>
+          <input type="text" class="task-input" value="${escapeAttr(task.text)}" placeholder="タスクを入力..." onkeydown="handleKeydown(event, this)" onblur="onFieldBlur(this, '${rowId}', 'text')" ${isViewerMode ? 'readonly' : ''}>
+          <div class="note-icon-wrap">
+            <i class="fa-regular fa-file-lines note-icon" onclick="openNoteModal('${rowId}')" title="ノート・コメント"></i>
+            <span class="comment-badge" id="badge-${rowId}">0</span>
+          </div>
+        </div>
+        <div class="status-cell">
+          <select class="status-select" onchange="onStatusChange(this, '${rowId}')" ${isViewerMode ? 'disabled' : ''}>
+            <option value="未着手" ${task.status === '未着手' ? 'selected' : ''}>未着手</option>
+            <option value="進行中" ${task.status === '進行中' ? 'selected' : ''}>進行中</option>
+            <option value="完了" ${task.status === '完了' ? 'selected' : ''}>完了</option>
+            <option value="ブロック中" ${task.status === 'ブロック中' ? 'selected' : ''}>ブロック中</option>
+          </select>
+        </div>
+        <div class="progress-cell">
+          <input type="number" class="progress-input" min="0" max="100" step="5" value="${task.progress}" oninput="onProgressChange(this, '${rowId}')" onblur="onProgressBlur(this, '${rowId}')" ${readonlyAttr}>
+          <span class="progress-unit">%</span>
+        </div>
+        <input type="text" class="col-input" placeholder="" value="${escapeAttr(task.manager)}" onblur="onFieldBlur(this, '${rowId}', 'manager')" ${isViewerMode ? 'readonly' : ''}>
+        <input type="text" class="col-input" placeholder="" value="${escapeAttr(task.ball)}" onblur="onFieldBlur(this, '${rowId}', 'ball')" ${isViewerMode ? 'readonly' : ''}>
+        <div class="deadline-inputs">
+          <input type="date" class="date-input start-date" value="${task.start_date}" data-prev="${task.start_date}" onchange="pushUndo(); handleDateChange('${rowId}')" ${isViewerMode ? 'readonly' : ''}>
+          <span class="date-separator">-</span>
+          <input type="date" class="date-input end-date" value="${task.end_date}" data-prev="${task.end_date}" onchange="pushUndo(); handleDateChange('${rowId}')" ${isViewerMode ? 'readonly' : ''}>
+          <span class="deadline-alert" id="alert-${rowId}"></span>
+        </div>
+      `;
+
+      const ganttRow = document.createElement('div');
+      ganttRow.className = 'gantt-row';
+      ganttRow.id = rowId;
+      ganttRow.dataset.level = task.level;
+      ganttRow.style.zIndex = 1;
+
+      applyStatusColor(taskRow.querySelector('.status-select'));
+
+      // 指定位置に挿入
+      const refTaskRow = taskList.children[position];
+      const refGanttRow = ganttList.children[position];
+      if (refTaskRow) {
+        taskList.insertBefore(taskRow, refTaskRow);
+        ganttList.insertBefore(ganttRow, refGanttRow);
+      } else {
+        taskList.appendChild(taskRow);
+        ganttList.appendChild(ganttRow);
+      }
+
+      // ホバー同期
+      taskRow.addEventListener('mouseenter', () => { taskRow.classList.add('is-hovered'); ganttRow.classList.add('is-hovered'); });
+      taskRow.addEventListener('mouseleave', () => { taskRow.classList.remove('is-hovered'); ganttRow.classList.remove('is-hovered'); });
+      ganttRow.addEventListener('mouseenter', () => { taskRow.classList.add('is-hovered'); ganttRow.classList.add('is-hovered'); });
+      ganttRow.addEventListener('mouseleave', () => { taskRow.classList.remove('is-hovered'); ganttRow.classList.remove('is-hovered'); });
+
+      // ツールチップ
+      const inputElem = taskRow.querySelector('.task-input');
+      const globalTooltip = document.getElementById('globalTooltip');
+      inputElem.addEventListener('mouseenter', (ev) => {
+        if (!inputElem.value || inputElem === document.activeElement) return;
+        globalTooltip.textContent = inputElem.value;
+        globalTooltip.style.display = 'block';
+        const r = ev.target.getBoundingClientRect();
+        globalTooltip.style.left = r.left + 'px';
+        globalTooltip.style.top = (r.top - globalTooltip.offsetHeight - 8) + 'px';
+      });
+      inputElem.addEventListener('mouseleave', () => globalTooltip.style.display = 'none');
+      inputElem.addEventListener('focus', () => globalTooltip.style.display = 'none');
+
+      updateGantt(rowId);
+      updateCommentBadge(rowId);
+      updateDeadlineAlert(rowId);
+
+      return taskRow;
+    }
+
     async function addTaskRowUI(initialText = '', initialLevel = null, insertAfterRow = null) {
       if (isViewerMode) return;
       const level = initialLevel !== null ? initialLevel : 0;
@@ -670,25 +797,39 @@
         sortOrder = afterIdx + 1;
       }
 
+      // 楽観的更新：まずUIに即座に反映（DB保存を待たない）
+      const tempTask = {
+        id: 'temp-' + rowId,
+        row_id: rowId, project_id: PROJECT_ID, sort_order: sortOrder,
+        level, collapsed: false, text: initialText,
+        status: '未着手', progress: 0, manager: '', ball: '',
+        start_date: '', end_date: '', created_at: new Date().toISOString(),
+      };
+      localTasks.splice(sortOrder, 0, tempTask);
+      localTasks.forEach((t, i) => t.sort_order = i);
+
+      // DOMに新しい行だけ挿入（全再描画しない）
+      insertTaskDOMAtPosition(tempTask, sortOrder);
+      updateRowIcons();
+
+      const newRow = document.getElementById('row-' + rowId);
+      if (newRow) {
+        newRow.querySelector('.task-input').focus();
+      }
+
+      // バックグラウンドでDB保存
       try {
-        const newTask = await insertTask(PROJECT_ID, {
+        const savedTask = await insertTask(PROJECT_ID, {
           row_id: rowId, sort_order: sortOrder, text: initialText, level,
         });
-        localTasks.splice(sortOrder, 0, newTask);
-        // sort_order再付与
-        localTasks.forEach((t, i) => t.sort_order = i);
-
-        renderAllTasksFromLocal();
-        const newRow = document.getElementById('row-' + rowId);
-        if (newRow) {
-          setTimeout(() => {
-            newRow.querySelector('.task-input').focus();
-            const scrollArea = document.getElementById('leftScrollArea');
-            scrollArea.scrollTop = scrollArea.scrollHeight;
-          }, 10);
-        }
+        // DBから返ったIDで更新
+        tempTask.id = savedTask.id;
+        if (newRow) newRow.dataset.dbId = savedTask.id;
       } catch (e) {
-        console.error('Failed to add task:', e);
+        console.error('Failed to save task:', e);
+        // 失敗時はローカルから削除して再描画
+        localTasks = localTasks.filter(t => t.row_id !== rowId);
+        renderAllTasksFromLocal();
         alert('タスクの追加に失敗しました。');
       }
     }
@@ -788,7 +929,14 @@
         // DB削除
         const dbIds = tasksToDelete.map(rid => localTasks.find(t => t.row_id === rid)?.id).filter(Boolean);
         localTasks = localTasks.filter(t => !tasksToDelete.includes(t.row_id));
-        renderAllTasksFromLocal();
+        // 差分更新：対象行だけDOMから削除
+        tasksToDelete.forEach(rid => {
+          const tr = document.getElementById('row-' + rid);
+          const gr = document.getElementById(rid);
+          if (tr) tr.remove();
+          if (gr) gr.remove();
+        });
+        updateRowIcons();
         document.getElementById('globalTooltip').style.display = 'none';
         if (dbIds.length) deleteTasks(dbIds).catch(console.error);
         return;
